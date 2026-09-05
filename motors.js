@@ -47,6 +47,12 @@
     eta_spool: 0.95,      // spool bearing + ext gear
     J_sp: 5e-5,           // kg-m^2 pulley + hub inertia
     t_m: 0.015,           // s motor mechanical time constant (ESTIMATE)
+    eta_ext: 0.95,        // per external gearing stage, applied only when G_ext != 1
+
+    // --- external ratio search grid (addendum 2) ---
+    g_min: 0.4,           // below 1 = overdrive
+    g_max: 6.0,
+    g_step: 0.05,
 
     // --- electrical ---
     V_batt: 12.5,         // V open circuit

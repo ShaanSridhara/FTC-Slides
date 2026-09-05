@@ -1,9 +1,9 @@
 # FTC Vertical Linear Slide Calculator
 
-A static web calculator for a 3-stage FTC vertical linear slide. Give it total travel, rigging
-(cascade or continuous), payload, and an optional tip-speed cap; it returns the fastest extension
-time, the best goBILDA motor, the best pulley diameter, and the pulley tolerance window — plus
-time-vs-payload and time-vs-diameter curves for all six motors.
+A static web calculator for a 3-stage FTC vertical linear slide. Give it total travel, payload,
+and an optional tip-speed cap; it picks the rigging for you and returns two answers — the best
+stock goBILDA motor on direct drive, and the best achievable with external gearing — plus the
+pulley tolerance windows and five charts.
 
 **Live:** https://shaansridhara.github.io/FTC-Slides/
 
@@ -26,7 +26,33 @@ steady-state optimum `r = eta*T_s/(2F)` is *not* the minimum-time pulley, becaus
 inertia pull the true optimum 5–10% smaller. Because that optimum can sit on a cliff, the tool
 always reports the ±5% window alongside it, and flags any result pinned at the build limits.
 
-Full model, constants, and reference data: [SPEC.md](SPEC.md).
+### Rigging is chosen, not entered
+
+Both riggings are solved for every input and the faster one wins. The answer states the pick and
+the margin, e.g. `Rigging: continuous (0.457 s) — cascade would be 0.472 s (+3.3%)`. The result
+table follows the winner, with a toggle for the loser; the charts always show both.
+
+### Two answers
+
+**Answer 1 — Stock** is direct drive (`G_ext = 1`): six motors × 33 pulley diameters × both
+riggings, argmin time.
+
+**Answer 2 — Geared** adds an external ratio, because every Yellow Jacket shares the same RS-555
+core and the gearbox only sets the ratio — so the real question is what *total* output ratio, and
+therefore what equivalent output RPM, minimises the time. It searches base motor × `G_ext`
+(0.4–6.0 in 0.05 steps, below 1 being overdrive) × pulley diameter × rigging, and reports the
+equivalent output RPM as the headline, along with the nearest stock goBILDA tooth pair. An
+external stage costs `eta_ext` (default 0.95), applied only when `G_ext ≠ 1`. Ties resolve toward
+no external stage, then toward a pulley near 40 mm.
+
+With the defaults, gearing does **not** help: the pulley sweep already supplies the ratio, so
+`G_ext = 1` wins outright and the tool says so plainly. Overdrive at `G_ext = 0.8` is genuinely
+1.5% faster in the raw physics, but the 5% cost of the external stage more than eats it. Gearing
+only pays when the pulley optimum is pinned at a build limit — force that (say a 60 mm minimum
+pulley at 2 kg) and Answer 2 finds a 4.8% gain at a real reduction.
+
+Full model, constants, and reference data: [SPEC.md](SPEC.md) and
+[SPEC_ADDENDUM_2.md](SPEC_ADDENDUM_2.md).
 
 ## Running it
 
@@ -39,10 +65,15 @@ without a network connection the numbers still work and the charts are skipped.
 node tests/physics.test.js
 ```
 
-Assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
+323 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
 checks, the stall diameters, the tip-speed-cap cases, the two external validation points
-(the goBILDA Viper-Slide kit and FTC team The Clueless), and the section 8 modelling guards.
-The same suite gates deployment in CI.
+(the goBILDA Viper-Slide kit and FTC team The Clueless), the section 8 modelling guards, and the
+addendum's rigging pick and gearing optimizer. The same suite gates deployment in CI.
+
+The sharpest of these is an identity test: a motor geared by `k` must be indistinguishable from a
+motor with `ratio × k`, `free speed / k`, `stall torque × k` and `rotor inertia × k²` run direct.
+It holds to 1e-14, and it only holds because the spool inertia `J_sp` is reflected through
+`G_ext²` — reverting that one term fails the test by 0.022 s.
 
 ### One correction to the spec
 
@@ -85,5 +116,6 @@ physics.js   the model - pure functions, no DOM, mirrors SPEC.md sections 2-4
 motors.js    motor table and default constants
 style.css
 tests/physics.test.js
-SPEC.md      the handoff spec this was built from
+SPEC.md              the handoff spec this was built from
+SPEC_ADDENDUM_2.md   auto-pick rigging, and the geared second answer
 ```

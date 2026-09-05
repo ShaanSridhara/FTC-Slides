@@ -263,6 +263,154 @@ section('Acceptance criteria (section 0.6)');
   near('continuous 0.6 kg time', k.best.best_t, 0.457, 0.0005);
 })();
 
+// ------------------------------------------------ addendum 2, section A
+
+section('Addendum A: rigging is chosen, not entered');
+(function () {
+  var a = Physics.stockAnswer(0.6, P0, MOTORS);
+  eq('defaults pick continuous', a.rigging, 'continuous');
+  eq('loser is cascade', a.other, 'cascade');
+  near('winning time', a.t, 0.4568, TOL_T);
+  near('losing time', a.t_other, 0.4720, TOL_T);
+  near('margin %', a.margin, 3.3, 0.1);
+  eq('winner motor', a.best.motor.name, '1150');
+  eq('winner pulley', a.best.best_d, 50);
+  check('both riggings are kept for the tables', !!(a.byRigging.cascade && a.byRigging.continuous));
+
+  // The winner must actually be the lower of the two.
+  Motors.PAYLOAD_SWEEP.forEach(function (P) {
+    var r = Physics.stockAnswer(P, P0, MOTORS);
+    var lo = Math.min(r.byRigging.cascade.best.best_t, r.byRigging.continuous.best.best_t);
+    near('argmin over riggings @ ' + P.toFixed(1) + ' kg', r.t, lo, 1e-12);
+  });
+})();
+
+// ------------------------------------------------ addendum 2, section B
+
+section('Addendum B: external ratio grid and tooth pairs');
+(function () {
+  var g = Physics.gearGrid(P0);
+  eq('grid size 0.4..6.0 step 0.05', g.length, 113);
+  near('grid starts at 0.4', g[0], 0.4, 1e-12);
+  near('grid ends at 6.0', g[112], 6.0, 1e-12);
+  check('grid contains exactly 1.0', g.indexOf(1) !== -1);
+
+  var t = Physics.nearestToothPair(2.4);
+  near('2.4:1 -> exact tooth pair', t.ratio, 2.4, 1e-12);
+  eq('2.4:1 driven', t.driven, 48);
+  eq('2.4:1 driver', t.driver, 20);
+  near('0.6:1 overdrive is reachable', Physics.nearestToothPair(0.6).ratio, 0.6, 1e-12);
+  check('closest pair beats its neighbours', Physics.nearestToothPair(3.0).err < 1e-12);
+})();
+
+section('Addendum B: G_ext wiring');
+(function () {
+  // Identity: motor A geared by k is indistinguishable from a motor with ratio*k,
+  // free speed/k, stall torque*k and rotor inertia*k^2 driven direct. This only
+  // holds if J_sp is reflected by G_ext^2 too, which is the fix the addendum asked for.
+  var p = params({ eta_ext: 1.0 });
+  var A = motor('1150', p);
+  var worst = 0, stallMismatch = 0;
+  [0.5, 0.8, 1.6, 2.5, 4.0].forEach(function (k) {
+    var B = { name: 'synthetic', rpm_free: A.rpm_free / k, T_stall: A.T_stall * k,
+              kt: A.kt * k, w_free: A.w_free / k, J_rot: A.J_rot * k * k, peak_W: 0 };
+    ['cascade', 'continuous'].forEach(function (rig) {
+      [16, 40, 80].forEach(function (d) {
+        var ta = Physics.solve(A, d, 0.6, rig, Physics.withParam(p, 'G_ext', k));
+        var tb = Physics.solve(B, d, 0.6, rig, Physics.withParam(p, 'G_ext', 1));
+        if (ta && tb) worst = Math.max(worst, Math.abs(ta.t - tb.t));
+        else if (!!ta !== !!tb) stallMismatch++;
+      });
+    });
+  });
+  near('geared motor == equivalent direct-drive motor', worst, 0, 1e-11);
+  eq('no stall disagreement', stallMismatch, 0);
+
+  // eta_ext applies only when there is an external stage.
+  near('eta untouched at G_ext = 1', Physics.effEta(params({ G_ext: 1 }), 0.8), 0.8, 1e-12);
+  near('eta pays eta_ext at G_ext != 1',
+    Physics.effEta(params({ G_ext: 2, eta_ext: 0.95 }), 0.8), 0.76, 1e-12);
+
+  // J_sp is reflected by G_ext^2, so overdrive amplifies what the spool costs.
+  // (Continuous at 20 mm keeps every case well clear of stall.)
+  var pa = params({ eta_ext: 1.0, J_sp: 0 });
+  var pb = params({ eta_ext: 1.0, J_sp: 5e-5 });
+  function spoolCost(G) {
+    var a = Physics.solve(motor('1150'), 20, 0.6, 'continuous', Physics.withParam(pa, 'G_ext', G));
+    var b = Physics.solve(motor('1150'), 20, 0.6, 'continuous', Physics.withParam(pb, 'G_ext', G));
+    check('no stall at G_ext = ' + G, !!(a && b));
+    return (a && b) ? b.t - a.t : NaN;
+  }
+  var cost1 = spoolCost(1), costHalf = spoolCost(0.5);
+  check('spool inertia costs time', cost1 > 0);
+  check('overdrive amplifies the spool inertia (G_ext^2 reflection)', costHalf > 2 * cost1,
+    'cost@0.5 = ' + cost1.toExponential(3) + ' -> ' + costHalf.toExponential(3));
+})();
+
+section('Addendum B: geared optimizer');
+(function () {
+  // Restricted to G_ext = 1 with no external penalty, the geared search must
+  // reproduce the stock search exactly.
+  var p1 = params({ g_min: 1, g_max: 1, eta_ext: 1.0 });
+  var m1 = Physics.deriveMotors(Motors.MOTORS, p1);
+  var stock = Physics.stockAnswer(0.6, p1, m1);
+  var geared = Physics.gearedAnswer(0.6, p1, m1);
+  near('same time as the stock optimizer', geared.best.t, stock.t, 1e-12);
+  eq('same motor', geared.best.motor.name, stock.best.motor.name);
+  eq('same pulley', geared.best.d, stock.best.best_d);
+  eq('same rigging', geared.best.rigging, stock.rigging);
+
+  // Gearing can never be worse than direct drive, because G_ext = 1 is in the grid.
+  Motors.PAYLOAD_SWEEP.forEach(function (P) {
+    var a = Physics.fullAnswer(P, P0, MOTORS);
+    check('geared <= stock @ ' + P.toFixed(1) + ' kg overall',
+      a.geared.best.t <= a.stock.t + 1e-12,
+      'geared ' + a.geared.best.t.toFixed(6) + ' vs stock ' + a.stock.t.toFixed(6));
+
+    // and per motor, covering every reference-table cell
+    a.geared.curves.forEach(function (c) {
+      var gearedBest = Infinity;
+      c.points.forEach(function (pt) { if (pt.t < gearedBest) gearedBest = pt.t; });
+      var direct = Infinity;
+      ['cascade', 'continuous'].forEach(function (rig) {
+        var s = Physics.sweepMotor(c.motor, P, rig, Physics.withParam(P0, 'G_ext', 1));
+        if (!s.stalled && s.best_t < direct) direct = s.best_t;
+      });
+      if (isFinite(direct)) {
+        check('geared <= direct, ' + c.motor.name + ' @ ' + P.toFixed(1) + ' kg',
+          gearedBest <= direct + 1e-12,
+          gearedBest.toFixed(6) + ' vs ' + direct.toFixed(6));
+      }
+    });
+  });
+
+  // Ties resolve toward no external stage.
+  var a = Physics.fullAnswer(0.6, P0, MOTORS);
+  near('defaults: gearing gains nothing', a.gain, 0, 1e-9);
+  eq('defaults: tie-break picks direct drive', a.geared.best.G_ext, 1);
+  check('defaults: reported as not worth it', a.gearingHelps === false);
+  near('equivalent output RPM at G_ext = 1 is the motor rpm', a.geared.rpm_equiv, 1150, 1e-9);
+
+  // With the pulley range restricted, gearing must actually earn its keep.
+  var pr = params({ d_min: 60 });
+  var mr = Physics.deriveMotors(Motors.MOTORS, pr);
+  var tight = Physics.fullAnswer(2.0, pr, mr);
+  check('a 60 mm pulley floor makes gearing pay', tight.gain > 2 && tight.gearingHelps,
+    'gain ' + tight.gain.toFixed(2) + '%');
+  check('and it picks a real reduction', tight.geared.best.G_ext !== 1);
+
+  // chart 5 data
+  eq('one curve per motor', a.geared.curves.length, 6);
+  a.geared.curves.forEach(function (c) {
+    check(c.motor.name + ' curve is ascending in RPM', c.points.every(function (pt, i) {
+      return i === 0 || pt.rpm >= c.points[i - 1].rpm;
+    }));
+    check(c.motor.name + ' curve has points', c.points.length > 0);
+  });
+  check('windows reported on both axes',
+    a.geared.gWindow[0] !== null && a.geared.dWindow[0] !== null);
+})();
+
 // ----------------------------------------------------------------
 
 console.log('\n' + '-'.repeat(56));

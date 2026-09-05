@@ -60,6 +60,12 @@
 
   function radius(d_mm, p) { return (d_mm + p.d_string) / 2000; }   // m
 
+  // An external stage costs eta_ext, but only when there actually is one.
+  // At G_ext = 1 this returns the rigging efficiency untouched.
+  function effEta(p, base) {
+    return p.G_ext === 1 ? base : base * p.eta_ext;
+  }
+
   // Cascade: all stages move together at ratios 1:2:3, all drags act at once.
   function cascadeForce(p, payload) {
     var m_tip = p.m3 + p.m_c + payload;
@@ -157,15 +163,17 @@
     var w_cap = 0;
 
     if (rigging === 'continuous') {
+      var eta_k = effEta(p, p.eta_k);
       var phases = continuousPhases(p, payload);
       var theta = (E / p.N) / r * p.G_ext;            // per phase
       if (p.v_cap > 0) w_cap = p.v_cap * p.G_ext / r;
       var t_total = 0, w0 = 0, out = [];
       for (var i = 0; i < phases.length; i++) {
         var ph = phases[i];
-        var op = operatingPoint(ph.F, r, p.eta_k, motor, p);
-        var J = p.n_motors * motor.J_rot + p.J_sp +
-                r * r * ph.M / (p.G_ext * p.G_ext * p.eta_k);
+        var op = operatingPoint(ph.F, r, eta_k, motor, p);
+        // Both the spool inertia and the reflected load are seen through G_ext^2.
+        var J = p.n_motors * motor.J_rot + p.J_sp / (p.G_ext * p.G_ext) +
+                r * r * ph.M / (p.G_ext * p.G_ext * eta_k);
         var s = solvePhase(op, J, theta, w0, w_cap);
         if (!s) return null;                          // any phase stalls -> no lift
         t_total += s.t;
@@ -186,10 +194,11 @@
     }
 
     // cascade
+    var eta_c = effEta(p, p.eta_c);
     var c = cascadeForce(p, payload);
-    var op2 = operatingPoint(c.F, r, p.eta_c, motor, p);
-    var J2 = p.n_motors * motor.J_rot + p.J_sp +
-             r * r * c.m_eff / (p.G_ext * p.G_ext * p.eta_c);
+    var op2 = operatingPoint(c.F, r, eta_c, motor, p);
+    var J2 = p.n_motors * motor.J_rot + p.J_sp / (p.G_ext * p.G_ext) +
+             r * r * c.m_eff / (p.G_ext * p.G_ext * eta_c);
     var theta2 = (E / p.N) / r * p.G_ext;
     if (p.v_cap > 0) w_cap = p.v_cap * p.G_ext / (p.N * r);
     var s2 = solvePhase(op2, J2, theta2, 0, w_cap);
@@ -252,12 +261,184 @@
     return { rows: rows, ranked: live, best: live.length ? live[0] : null };
   }
 
+  // ------------------------------------------------- addendum A: pick rigging
+
+  var RIGGINGS = ['cascade', 'continuous'];
+
+  function withParam(p, key, value) {
+    var q = {};
+    for (var k in p) if (Object.prototype.hasOwnProperty.call(p, k)) q[k] = p[k];
+    q[key] = value;
+    return q;
+  }
+
+  // Answer 1 (STOCK): direct drive, both riggings, best wins.
+  // G_ext is forced to 1 - external gearing is Answer 2's job.
+  function stockAnswer(payload, p, motors) {
+    var p1 = withParam(p, 'G_ext', 1);
+    var by = {};
+    RIGGINGS.forEach(function (rig) { by[rig] = analyze(payload, rig, p1, motors); });
+
+    var live = RIGGINGS.filter(function (rig) { return by[rig].best; });
+    live.sort(function (a, b) { return by[a].best.best_t - by[b].best.best_t; });
+
+    var winner = live[0] || null, loser = live[1] || null;
+    return {
+      params: p1,
+      byRigging: by,
+      rigging: winner,
+      other: loser,
+      result: winner ? by[winner] : null,
+      best: winner ? by[winner].best : null,
+      t: winner ? by[winner].best.best_t : null,
+      t_other: loser ? by[loser].best.best_t : null,
+      // how much worse the losing rigging is, as a percentage
+      margin: (winner && loser)
+        ? 100 * (by[loser].best.best_t - by[winner].best.best_t) / by[winner].best.best_t
+        : null
+    };
+  }
+
+  // ------------------------------------------------ addendum B: geared search
+
+  var TIE = 1e-6;   // s; below this two candidates count as the same result
+
+  function gearGrid(p) {
+    var out = [], n = Math.round((p.g_max - p.g_min) / p.g_step);
+    for (var i = 0; i <= n; i++) {
+      // rebuild from the step so 1.0 lands exactly on the grid
+      out.push(Math.round((p.g_min + i * p.g_step) * 1e6) / 1e6);
+    }
+    return out;
+  }
+
+  // Ties are common here because pulley diameter and G_ext trade off against each
+  // other. Prefer no external stage at all, then a pulley near the middle of the
+  // build range.
+  function preferred(cand, best) {
+    if (!best) return true;
+    var dt = cand.t - best.t;
+    if (dt < -TIE) return true;
+    if (dt > TIE) return false;
+    var cg = Math.abs(cand.G_ext - 1), bg = Math.abs(best.G_ext - 1);
+    if (cg < bg - 1e-12) return true;
+    if (cg > bg + 1e-12) return false;
+    return Math.abs(cand.d - 40) < Math.abs(best.d - 40);
+  }
+
+  var TEETH = [16, 20, 24, 28, 32, 36, 40, 48, 60, 72, 80, 100, 120];
+
+  // Closest single-stage tooth pair to the wanted ratio. Driven:driver.
+  function nearestToothPair(ratio) {
+    var best = null;
+    for (var i = 0; i < TEETH.length; i++) {
+      for (var j = 0; j < TEETH.length; j++) {
+        var got = TEETH[i] / TEETH[j];
+        var err = Math.abs(got - ratio);
+        if (!best || err < best.err - 1e-12 ||
+            (Math.abs(err - best.err) <= 1e-12 && TEETH[i] + TEETH[j] < best.sum)) {
+          best = { driven: TEETH[i], driver: TEETH[j], ratio: got, err: err,
+                   sum: TEETH[i] + TEETH[j] };
+        }
+      }
+    }
+    return best;
+  }
+
+  // Answer 2 (GEARED): search base motor x external ratio x pulley x rigging.
+  // Returns the winner plus the per-motor curves chart 5 needs.
+  function gearedAnswer(payload, p, motors) {
+    var grid = gearGrid(p);
+    var ds = diameters(p);
+    var best = null;
+    var curves = [];        // per motor: {motor, points:[{rpm, G_ext, t, d}]}
+
+    for (var mi = 0; mi < motors.length; mi++) {
+      var motor = motors[mi];
+      var pts = [];
+      for (var gi = 0; gi < grid.length; gi++) {
+        var g = grid[gi];
+        var pg = withParam(p, 'G_ext', g);
+        var atG = null;                          // best over d and rigging at this ratio
+        var byRig = {};                          // and the best per rigging, for chart 5
+        for (var ri = 0; ri < RIGGINGS.length; ri++) {
+          var rig = RIGGINGS[ri];
+          byRig[rig] = null;
+          for (var di = 0; di < ds.length; di++) {
+            var res = solve(motor, ds[di], payload, rig, pg);
+            if (!res) continue;                  // STALL never enters the argmin
+            var cand = { motor: motor, G_ext: g, d: ds[di], rigging: rig,
+                         t: res.t, res: res, params: pg };
+            if (preferred(cand, best)) best = cand;
+            if (!atG || res.t < atG.t) atG = cand;
+            if (byRig[rig] === null || res.t < byRig[rig]) byRig[rig] = res.t;
+          }
+        }
+        if (atG) pts.push({ rpm: motor.rpm_free / g, G_ext: g, t: atG.t, d: atG.d,
+                            rigging: atG.rigging, byRig: byRig });
+      }
+      pts.sort(function (a, b) { return a.rpm - b.rpm; });
+      curves.push({ motor: motor, points: pts });
+    }
+
+    if (!best) return { best: null, curves: curves, grid: grid };
+
+    // +/-5% windows on BOTH axes, taken along the winning rigging.
+    var ceiling = 1.05 * best.t;
+    var gLo = null, gHi = null, dLo = null, dHi = null;
+
+    for (var a = 0; a < grid.length; a++) {
+      var pa = withParam(p, 'G_ext', grid[a]);
+      var mn = Infinity;
+      for (var b = 0; b < ds.length; b++) {
+        var r1 = solve(best.motor, ds[b], payload, best.rigging, pa);
+        if (r1 && r1.t < mn) mn = r1.t;
+      }
+      if (mn <= ceiling) { if (gLo === null) gLo = grid[a]; gHi = grid[a]; }
+    }
+    for (var c1 = 0; c1 < ds.length; c1++) {
+      var mn2 = Infinity;
+      for (var d1 = 0; d1 < grid.length; d1++) {
+        var r2 = solve(best.motor, ds[c1], payload, best.rigging,
+                       withParam(p, 'G_ext', grid[d1]));
+        if (r2 && r2.t < mn2) mn2 = r2.t;
+      }
+      if (mn2 <= ceiling) { if (dLo === null) dLo = ds[c1]; dHi = ds[c1]; }
+    }
+
+    var eta_ext = best.G_ext === 1 ? 1 : p.eta_ext;
+    return {
+      best: best,
+      curves: curves,
+      grid: grid,
+      gWindow: [gLo, gHi],
+      dWindow: [dLo, dHi],
+      rpm_equiv: best.motor.rpm_free / best.G_ext,
+      T_stall_equiv: best.motor.T_stall * best.G_ext * eta_ext,
+      teeth: nearestToothPair(best.G_ext)
+    };
+  }
+
+  // Both answers together, plus the comparison the UI reports.
+  function fullAnswer(payload, p, motors) {
+    var stock = stockAnswer(payload, p, motors);
+    var geared = gearedAnswer(payload, p, motors);
+    var gain = (stock.t && geared.best)
+      ? 100 * (stock.t - geared.best.t) / stock.t : null;
+    return {
+      stock: stock,
+      geared: geared,
+      gain: gain,
+      gearingHelps: gain !== null && gain >= 2
+    };
+  }
+
   // ---------------------------------------------------------------- extras
 
   // Largest pulley that still lifts (u = 1). V sags with load, so iterate the supply.
   // d_stall = 2000*eta*T_s*G/F - d_string
   function stallDiameter(motor, payload, rigging, p) {
-    var eta = rigging === 'continuous' ? p.eta_k : p.eta_c;
+    var eta = effEta(p, rigging === 'continuous' ? p.eta_k : p.eta_c);
     var F = rigging === 'continuous'
       ? continuousPhases(p, payload)[2].F              // phase C is the binding one
       : cascadeForce(p, payload).F;
@@ -280,7 +461,7 @@
     var F_grav = rigging === 'continuous'
       ? p.g * continuousPhases(p, payload)[2].M
       : p.g * (p.m1 + 2 * p.m2 + 3 * (p.m3 + p.m_c + payload));
-    var eta = rigging === 'continuous' ? p.eta_k : p.eta_c;
+    var eta = effEta(p, rigging === 'continuous' ? p.eta_k : p.eta_c);
     var tau_hold = F_grav * radius(d_mm, p) / (p.G_ext * eta);
     var I_hold = p.n_motors * p.I_free + tau_hold / motor.kt;
     var V = Math.max(V_FLOOR, p.V_oc - I_hold * p.R_series);
@@ -305,9 +486,17 @@
     newtonTime: newtonTime,
     solvePhase: solvePhase,
     solve: solve,
+    effEta: effEta,
     diameters: diameters,
     sweepMotor: sweepMotor,
     analyze: analyze,
+    RIGGINGS: RIGGINGS,
+    withParam: withParam,
+    stockAnswer: stockAnswer,
+    gearGrid: gearGrid,
+    nearestToothPair: nearestToothPair,
+    gearedAnswer: gearedAnswer,
+    fullAnswer: fullAnswer,
     stallDiameter: stallDiameter,
     holdCheck: holdCheck
   };
