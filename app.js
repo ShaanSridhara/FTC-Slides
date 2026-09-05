@@ -1,0 +1,304 @@
+/* app.js - DOM wiring. All maths lives in physics.js. */
+(function () {
+  'use strict';
+
+  var D = Motors.DEFAULTS;
+  var SWEEP = Motors.PAYLOAD_SWEEP;
+  var CLIP = 1.6;   // charts 3 and 4 hide anything above 1.6x that chart's minimum
+
+  // Advanced panel layout: every constant from spec section 2.
+  var ADVANCED = [
+    ['Geometry and masses', [
+      ['N', 'stages', 1], ['m_slide', 'kg per slide', 0.001], ['f_inner', 'inner rail frac', 0.05],
+      ['m_hw', 'kg hw/stage', 0.005], ['m_c', 'kg carriage', 0.005],
+      ['d1', 'N drag i1', 0.1], ['d2', 'N drag i2', 0.1], ['d3', 'N drag i3', 0.1],
+      ['F_spring', 'N assist', 0.5], ['g', 'm/s^2', 0.001]
+    ]],
+    ['Drive', [
+      ['n_motors', 'motors', 1], ['G_ext', 'ext ratio', 0.1], ['d_string', 'mm string', 0.1],
+      ['n_idler_c', 'idlers casc', 1], ['n_idler_k', 'idlers cont', 1],
+      ['eta_idler', 'per idler', 0.01], ['eta_spool', 'spool+gear', 0.01],
+      ['J_sp', 'kg m^2 spool', 1e-5], ['t_m', 's motor tc', 0.001]
+    ]],
+    ['Electrical', [
+      ['V_batt', 'V open ckt', 0.1], ['I_other', 'A other', 0.5], ['R_series', 'ohm', 0.005],
+      ['I_port', 'A port limit', 1], ['I_stall', 'A stall', 0.1], ['I_free', 'A free', 0.05]
+    ]],
+    ['Build limits', [
+      ['d_min', 'mm smallest', 1], ['d_max', 'mm largest', 1]
+    ]]
+  ];
+
+  var COLORS = ['#1f5fd0', '#e2574c', '#0d9b6c', '#c9821a', '#7b52c9', '#4a5666'];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var charts = {};
+
+  // ------------------------------------------------------------ formatting
+
+  function f(v, n) { return (v === null || v === undefined || !isFinite(v)) ? '--' : v.toFixed(n); }
+  function esc(s) { return String(s).replace(/[&<>]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c];
+  }); }
+
+  // --------------------------------------------------------------- inputs
+
+  function buildAdvanced() {
+    var host = $('advanced-body'), html = '';
+    ADVANCED.forEach(function (grp) {
+      html += '<div class="adv-group"><h3>' + esc(grp[0]) + '</h3><div class="adv-grid">';
+      grp[1].forEach(function (fd) {
+        html += '<div class="field"><label for="adv-' + fd[0] + '">' + esc(fd[0]) + '</label>' +
+                '<div class="ctl"><input id="adv-' + fd[0] + '" type="number" step="' + fd[2] +
+                '" data-key="' + fd[0] + '"></div>' +
+                '<p class="hint">' + esc(fd[1]) + '</p></div>';
+      });
+      html += '</div></div>';
+    });
+    html += '<div class="derived" id="derived"></div>';
+    host.innerHTML = html;
+  }
+
+  function writeInputs(vals) {
+    ['travel', 'payload', 'v_cap'].forEach(function (k) { $(k).value = vals[k]; });
+    $('rigging').value = vals.rigging;
+    document.querySelectorAll('#advanced-body input[data-key]').forEach(function (el) {
+      el.value = vals[el.dataset.key];
+    });
+  }
+
+  // Read the form; fall back to the default for anything blank or unparseable.
+  function readParams() {
+    var raw = {};
+    for (var k in D) raw[k] = D[k];
+    raw.rigging = $('rigging').value === 'continuous' ? 'continuous' : 'cascade';
+    ['travel', 'payload', 'v_cap'].forEach(function (key) {
+      var v = parseFloat($(key).value);
+      if (isFinite(v)) raw[key] = v;
+    });
+    document.querySelectorAll('#advanced-body input[data-key]').forEach(function (el) {
+      var v = parseFloat(el.value);
+      if (isFinite(v)) raw[el.dataset.key] = v;
+    });
+    // Guards so a half-typed value cannot produce nonsense.
+    raw.travel = Math.max(1, raw.travel);
+    raw.payload = Math.max(0, raw.payload);
+    raw.v_cap = Math.max(0, raw.v_cap);
+    raw.N = Math.max(1, Math.round(raw.N));
+    raw.n_motors = Math.max(1, Math.round(raw.n_motors));
+    raw.d_min = Math.max(1, raw.d_min);
+    raw.d_max = Math.max(raw.d_min + 1, raw.d_max);
+    return Physics.deriveParams(raw);
+  }
+
+  // --------------------------------------------------------------- answer
+
+  function renderAnswer(p, motors, res) {
+    var tag = p.rigging === 'continuous' ? 'CONTINUOUS' : 'CASCADE';
+    $('answer-tag').textContent = tag + ' · ' + f(p.payload, 1) + ' kg';
+    $('table-tag').textContent = tag + ' · ' + f(p.payload, 1) + ' kg';
+
+    var body = $('answer-body');
+    if (!res.best) {
+      body.innerHTML = '<div class="flag stall">Every motor stalls at every pulley from ' +
+        f(p.d_min, 0) + ' to ' + f(p.d_max, 0) + ' mm. Lower the payload, or allow a smaller pulley.</div>';
+      return;
+    }
+
+    var b = res.best, r = b.best;
+    var wraps = b.best.takeup / (Math.PI * b.best_d / 1000);
+    var html =
+      '<div class="answer-head">' +
+        '<div class="headline">Motor <strong>' + esc(b.motor.name) + '</strong> RPM</div>' +
+        '<div class="headline">Pulley <strong class="big">' + f(b.best_d, 0) + '</strong> mm</div>' +
+        '<div class="headline">Extends in <strong class="big">' + f(b.best_t, 3) + '</strong> s</div>' +
+      '</div><div class="stats">' +
+      stat('&plusmn;5% pulley window', f(b.window[0], 0) + '&ndash;' + f(b.window[1], 0), 'mm') +
+      stat('Avg tip speed', f(r.v_avg, 2), 'm/s') +
+      stat('Torque used', f(100 * r.u, 1), '% of stall') +
+      stat('Current', f(r.I, 2), 'A') +
+      stat('Cable take-up', f(r.takeup * 1000, 0), 'mm') +
+      stat('Wraps on pulley', f(wraps, 2), '') +
+      stat('Peak cable tension', f(r.F_peak, 2), 'N') +
+      '</div>';
+
+    // Guards worth surfacing (spec section 8).
+    var flags = [];
+    if (b.at_min) flags.push('Best pulley is pinned at the <b>' + f(p.d_min, 0) +
+      ' mm build minimum</b> &mdash; the true optimum is smaller than you can build, so this motor is running past its sweet spot.');
+    if (b.at_max) flags.push('Best pulley is pinned at the <b>' + f(p.d_max, 0) +
+      ' mm build maximum</b> &mdash; a larger pulley would still be faster.');
+    if (b.window[0] === b.window[1]) flags.push('The &plusmn;5% window is a <b>single diameter</b>. ' +
+      'This combination sits on a cliff; a small build error costs real time.');
+    if (r.I > p.I_port) flags.push('Draws <b>' + f(r.I, 2) + ' A</b>, over the ' + f(p.I_port, 0) +
+      ' A Control Hub port limit.');
+    if (p.v_cap > 0) flags.push('A tip-speed cap is active, so every motor converges toward travel / v_cap = <b>' +
+      f((p.travel / 1000) / p.v_cap, 3) + ' s</b>. Set the cap to 0 to compare motors on their merits.');
+    var stalled = res.rows.filter(function (x) { return x.stalled; });
+    if (stalled.length) flags.push('No lift at any buildable pulley: <b>' +
+      stalled.map(function (x) { return x.motor.name; }).join(', ') + '</b>.');
+
+    html += flags.map(function (m) { return '<div class="flag">' + m + '</div>'; }).join('');
+    body.innerHTML = html;
+
+    $('derived').innerHTML = [
+      'm1 = ' + f(p.m1, 3), 'm2 = ' + f(p.m2, 3), 'm3 = ' + f(p.m3, 3),
+      'd_tot = ' + f(p.d_tot, 2) + ' N', 'eta_c = ' + f(p.eta_c, 4),
+      'eta_k = ' + f(p.eta_k, 4), 'V_oc = ' + f(p.V_oc, 3) + ' V'
+    ].map(function (s) { return '<span>' + s + '</span>'; }).join('');
+  }
+
+  function stat(k, v, u) {
+    return '<div class="stat"><div class="k">' + k + '</div><div class="v">' + v +
+           (u ? ' <small>' + u + '</small>' : '') + '</div></div>';
+  }
+
+  // ---------------------------------------------------------------- table
+
+  function renderTable(p, res) {
+    var tb = $('results').querySelector('tbody'), html = '';
+    var order = res.ranked.concat(res.rows.filter(function (r) { return r.stalled; }));
+
+    order.forEach(function (r) {
+      if (r.stalled) {
+        html += '<tr class="stalled"><td>&mdash;</td><td>' + esc(r.motor.name) +
+          '</td><td colspan="6">STALL at every pulley ' + f(p.d_min, 0) + '&ndash;' + f(p.d_max, 0) + ' mm</td></tr>';
+        return;
+      }
+      var notes = [];
+      if (r.at_min) notes.push('<span class="pin">at d_min</span>');
+      if (r.at_max) notes.push('<span class="pin">at d_max</span>');
+      if (r.window[0] === r.window[1]) notes.push('<span class="pin">single-d window</span>');
+      if (r.best.I > p.I_port) notes.push('<span class="pin">over port limit</span>');
+      html += '<tr' + (r.rank === 1 ? ' class="winner"' : '') + '>' +
+        '<td>' + r.rank + '</td>' +
+        '<td>' + esc(r.motor.name) + '</td>' +
+        '<td>' + f(r.best_d, 0) + ' mm</td>' +
+        '<td>' + f(r.best_t, 4) + ' s</td>' +
+        '<td>' + f(100 * r.best.u, 1) + '%</td>' +
+        '<td>' + f(r.best.I, 2) + ' A</td>' +
+        '<td>' + f(r.window[0], 0) + '&ndash;' + f(r.window[1], 0) + ' mm</td>' +
+        '<td>' + (notes.join(' ') || '') + '</td></tr>';
+    });
+    tb.innerHTML = html;
+
+    $('table-note').textContent =
+      'Torque used is the fraction of stall torque at the chosen pulley; for continuous it is ' +
+      'phase C, the phase carrying the whole stack. Rows marked "at d_min" / "at d_max" are ' +
+      'limited by the build range, not by the motor.';
+  }
+
+  // --------------------------------------------------------------- charts
+
+  function axes(xTitle, yTitle) {
+    var grid = getComputedStyle(document.body).getPropertyValue('--line').trim();
+    var ink = getComputedStyle(document.body).getPropertyValue('--ink-2').trim();
+    return {
+      x: { type: 'linear', title: { display: true, text: xTitle, color: ink },
+           grid: { color: grid }, ticks: { color: ink } },
+      y: { title: { display: true, text: yTitle, color: ink }, beginAtZero: false,
+           grid: { color: grid }, ticks: { color: ink } }
+    };
+  }
+
+  function draw(id, datasets, xTitle, yTitle) {
+    if (typeof Chart === 'undefined') return;
+    var ink = getComputedStyle(document.body).getPropertyValue('--ink-2').trim();
+    if (charts[id]) {
+      charts[id].data.datasets = datasets;
+      charts[id].options.scales = axes(xTitle, yTitle);
+      charts[id].update('none');
+      return;
+    }
+    charts[id] = new Chart($(id), {
+      type: 'line',
+      data: { datasets: datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        animation: false,
+        parsing: false,
+        interaction: { mode: 'nearest', axis: 'x', intersect: false },
+        elements: { point: { radius: 0 }, line: { borderWidth: 2, tension: 0.15 } },
+        plugins: {
+          legend: { labels: { color: ink, boxWidth: 14, boxHeight: 2, usePointStyle: false } },
+          tooltip: { callbacks: { label: function (c) {
+            return c.dataset.label + ': ' + c.parsed.y.toFixed(4) + ' s';
+          } } }
+        },
+        scales: axes(xTitle, yTitle)
+      }
+    });
+  }
+
+  // Chart 1 and 2: best time vs payload, one line per motor.
+  function loadChart(id, rigging, p, motors) {
+    var ds = motors.map(function (m, i) {
+      var pts = SWEEP.map(function (P) {
+        var s = Physics.sweepMotor(m, P, rigging, p);
+        return s.stalled ? null : { x: P, y: s.best_t };
+      }).filter(Boolean);
+      return { label: m.name, data: pts, borderColor: COLORS[i], backgroundColor: COLORS[i], spanGaps: false };
+    });
+    draw(id, ds, 'Payload (kg)', 'Best extension time (s)');
+  }
+
+  // Chart 3 and 4: time vs pulley diameter at the selected payload.
+  // Anything above CLIP x the chart minimum is dropped so the axis stays zoomed.
+  function diaChart(id, rigging, p, motors) {
+    var series = motors.map(function (m, i) {
+      var s = Physics.sweepMotor(m, p.payload, rigging, p);
+      return { name: m.name, ds: s.diameters, times: s.times, color: COLORS[i] };
+    });
+    var min = Infinity;
+    series.forEach(function (s) {
+      s.times.forEach(function (t) { if (t !== null && t < min) min = t; });
+    });
+    var ceiling = isFinite(min) ? CLIP * min : Infinity;
+
+    var ds = series.map(function (s) {
+      var pts = [];
+      for (var j = 0; j < s.ds.length; j++) {
+        if (s.times[j] !== null && s.times[j] <= ceiling) pts.push({ x: s.ds[j], y: s.times[j] });
+      }
+      return { label: s.name, data: pts, borderColor: s.color, backgroundColor: s.color, spanGaps: false };
+    });
+    draw(id, ds, 'Pulley diameter (mm)', 'Extension time (s)');
+    return isFinite(min) ? min : null;
+  }
+
+  // ---------------------------------------------------------------- render
+
+  function render() {
+    var p = readParams();
+    var motors = Physics.deriveMotors(Motors.MOTORS, p);
+    var res = Physics.analyze(p.payload, p.rigging, p, motors);
+
+    renderAnswer(p, motors, res);
+    renderTable(p, res);
+
+    var lbl = f(p.payload, 1) + ' kg';
+    $('dia-tag-c').textContent = lbl;
+    $('dia-tag-k').textContent = lbl;
+
+    loadChart('chart-load-cascade', 'cascade', p, motors);
+    loadChart('chart-load-continuous', 'continuous', p, motors);
+    diaChart('chart-dia-cascade', 'cascade', p, motors);
+    diaChart('chart-dia-continuous', 'continuous', p, motors);
+  }
+
+  // ------------------------------------------------------------------ init
+
+  buildAdvanced();
+  writeInputs(D);
+  if (typeof Chart === 'undefined') $('chartwarn').hidden = false;
+
+  document.addEventListener('input', function (e) {
+    if (e.target.matches('input, select')) render();
+  });
+  document.addEventListener('change', function (e) {
+    if (e.target.matches('select')) render();
+  });
+  $('reset').addEventListener('click', function () { writeInputs(D); render(); });
+
+  render();
+})();
