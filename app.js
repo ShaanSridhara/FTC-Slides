@@ -132,10 +132,11 @@
   }
 
   // Answer 1 - stock, direct drive.
-  function stockCard(stock, p) {
+  function stockCard(stock, p, fastest) {
     var b = stock.best, r = b.best;
     return '<div class="ans">' +
-      '<div class="ans-head"><h3>Answer 1 &mdash; Stock</h3>' +
+      '<div class="ans-head"><h3>Answer 1 &mdash; Stock' +
+        (fastest ? ' <span class="fastest">FASTEST</span>' : '') + '</h3>' +
         '<p class="ans-sub">Best Yellow Jacket, direct drive</p></div>' +
       '<div class="answer-head">' +
         '<div class="headline">Motor <strong>' + esc(b.motor.name) + '</strong> RPM</div>' +
@@ -150,10 +151,11 @@
 
   // Answer 2 - the shaft speed this load actually wants, and whether it is
   // worth building an external stage to reach it.
-  function idealCard(full, p) {
+  function idealCard(full, p, fastest) {
     var id = full.ideal;
     var gap = full.rpmGap;
     var stockRpm = full.stock.best.motor.rpm_free;
+    var pinned = id.d_ideal >= p.d_max - 1e-9;
 
     var reach = id.G_ext === 1
       ? 'The ' + esc(id.motor.name) + ' already turns at the ideal speed &mdash; no gearing needed.'
@@ -168,17 +170,40 @@
       verdict = '<div class="flag">Only <b>' + f(full.gain, 1) + '%</b> faster once the ' +
         'external stage loss is paid &mdash; not worth the extra parts. Build Answer 1.</div>';
     } else {
-      verdict = '<div class="flag">The extra stage costs more than the better ratio gains ' +
-        '(<b>' + f(Math.abs(full.gain), 1) + '% slower</b> in practice). Build Answer 1.</div>';
+      verdict = '<div class="flag">Building this is <b>' + f(Math.abs(full.gain), 1) +
+        '% slower</b> once the external stage loss is paid. Build Answer 1.</div>';
     }
 
+    // The two answers routinely land within a hair of each other, which looks wrong
+    // until you notice tip speed goes as RPM x pulley diameter. Trading one against
+    // the other is not a different machine, it is the same machine relabelled.
+    var flat = '';
+    if (full.gain !== null && Math.abs(full.gain) < 3) {
+      var prodStock = stockRpm * full.stock.best.best_d;
+      var prodIdeal = id.rpm * id.d_ideal;
+      flat = '<div class="flag tie">Why these are nearly identical: tip speed goes as ' +
+        '<b>RPM &times; pulley diameter</b>, so the two are one knob, not two. ' +
+        f(stockRpm, 0) + '&times;' + f(full.stock.best.best_d, 0) + ' = ' +
+        Math.round(prodStock).toLocaleString() + ' against ' + f(id.rpm, 0) + '&times;' +
+        f(id.d_ideal, 0) + ' = ' + Math.round(prodIdeal).toLocaleString() + ' &mdash; ' +
+        f(100 * Math.abs(prodStock - prodIdeal) / prodStock, 0) + '% apart. ' +
+        'Near the optimum the curve is flat: being 20% off on the pulley costs about 2%.</div>';
+    }
+
+    var pin = pinned
+      ? '<div class="flag">The ideal pulley is capped at your ' + f(p.d_max, 0) +
+        ' mm build maximum, so the ratio is being made up with gearing. Raise d_max in ' +
+        'Advanced if you can turn a bigger pulley.</div>'
+      : '';
+
     return '<div class="ans">' +
-      '<div class="ans-head"><h3>Answer 2 &mdash; Ideal</h3>' +
+      '<div class="ans-head"><h3>Answer 2 &mdash; Ideal' +
+        (fastest ? ' <span class="fastest">FASTEST</span>' : '') + '</h3>' +
         '<p class="ans-sub">The shaft speed this load wants</p></div>' +
       '<div class="answer-head">' +
         '<div class="headline">Ideal output <strong class="big">' + f(id.rpm, 0) +
           '</strong> RPM</div>' +
-        '<div class="headline">Best case <strong class="big">' + f(id.t_ideal, 3) +
+        '<div class="headline">If you build it <strong class="big">' + f(id.t, 3) +
           '</strong> s</div>' +
       '</div>' +
       '<div class="stats">' +
@@ -186,7 +211,10 @@
              (gap >= 0 ? '+' : '') + f(gap, 0) + '%', 'off ideal') +
         stat('Ideal pulley', f(id.d_ideal, 0), 'mm') +
       '</div>' +
-      '<p class="teeth">' + reach + '</p>' + verdict + '</div>';
+      '<p class="teeth">' + reach + '</p>' +
+      '<p class="teeth dim">With a lossless external stage it would be ' + f(id.t_ideal, 3) +
+        ' s; the ' + f(100 * (1 - p.eta_ext), 0) + '% stage loss is what you actually pay.</p>' +
+      verdict + pin + flat + '</div>';
   }
 
   // Guards worth surfacing (spec section 8), for the stock answer.
@@ -220,8 +248,11 @@
 
     $('rigging-line').innerHTML = riggingLine(stock);
     $('rigging-caveat').innerHTML = riggingCaveat(stock);
-    $('answer-body').innerHTML = stockCard(stock, p) +
-      (full.ideal ? idealCard(full, p) : '');
+    // Whichever is genuinely quicker to build gets the badge - never the
+    // lossless-gearing number, which is not a thing you can bolt to a robot.
+    var idealWins = !!(full.ideal && full.ideal.t !== null && full.ideal.t < stock.t - 1e-9);
+    $('answer-body').innerHTML = stockCard(stock, p, !idealWins) +
+      (full.ideal ? idealCard(full, p, idealWins) : '');
 
     $('derived').innerHTML = [
       'm1 = ' + f(p.m1, 3) + ' kg', 'm2 = ' + f(p.m2, 3) + ' kg', 'm3 = ' + f(p.m3, 3) + ' kg',

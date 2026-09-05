@@ -63,6 +63,31 @@ payload (6 kg), and it is a dead heat under a tip-speed cap (0.1%). It is *not* 
 16 mm pulley floor — cascade's optimum genuinely sits near 16 mm, and a 4 mm floor changes its time
 by less than 0.002 s.
 
+### Why the two answers land almost on top of each other
+
+Tip speed goes as **RPM x pulley diameter**. They are one knob, not two — trading a slower shaft
+against a bigger pulley is the same machine relabelled. At the defaults, Answer 1 is 1150 rpm on a
+50 mm pulley (product 57,500) and Answer 2 is 719 rpm on an 80 mm pulley (product 57,500). Identical.
+Of course they take the same time.
+
+On top of that, the optimum is flat, as any minimum is — the first derivative is zero there, so
+error costs only second order. Being 20% off on the pulley costs about 2%:
+
+| pulley error | time cost |
+|---|---|
+| 6% | 0.2% |
+| 12% | 0.9% |
+| 18% | 2.1% |
+| 24% | 3.7% |
+
+This is good news for building: the +/-5% window is genuinely wide, and you do not need to hit the
+optimum diameter exactly. It also means a "better" ideal RPM is usually worth very little.
+
+**Answer 2's headline is the achievable time, not the theoretical one.** `t_ideal` assumes a
+lossless external stage, which you cannot bolt to a robot; it is shown only as a dimmed footnote.
+The card leads with what you would actually get after paying `eta_ext`, and the FASTEST badge always
+goes to the quicker of the two *real* options — never to the lossless number. Tests enforce this.
+
 ### Two answers
 
 **Answer 1 — Stock** is what you build: direct drive (`G_ext = 1`), six motors x 33 pulley
@@ -103,7 +128,7 @@ without a network connection the numbers still work and the charts are skipped.
 node tests/physics.test.js
 ```
 
-361 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
+378 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
 checks, the stall diameters, the tip-speed-cap cases, the two external validation points
 (the goBILDA Viper-Slide kit and FTC team The Clueless), the section 8 modelling guards, and the
 addendum's rigging pick and gearing optimizer. It also cross-checks that the answer block, the

@@ -385,3 +385,17 @@ tr.stalled td { color: var(--ink-3); }
   color: var(--accent);
 }
 #rigging-caveat:not(:empty) { margin-bottom: 10px; }
+
+.fastest {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  background: var(--good-soft);
+  color: var(--good);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  vertical-align: 1px;
+}
+.teeth.dim { color: var(--ink-3); margin-top: 6px; }

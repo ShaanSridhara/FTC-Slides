@@ -473,6 +473,52 @@ section('Rigging verdict: energy audit and how narrow the win is');
   eq('cascade with 3 idlers wins', Physics.stockAnswer(0.6, lean, leanM).rigging, 'cascade');
 })();
 
+section('The recommended build is always the fastest buildable one');
+(function () {
+  // t_ideal is computed with a lossless external stage - it is a target, not a
+  // build. The achievable number (id.t) is the one that must be compared.
+  [[0, 700], [0.3, 820], [0.6, 700], [1.0, 700], [2.0, 1200]].forEach(function (c) {
+    var P = c[0];
+    var p = params({ travel: c[1] });
+    var ms = Physics.deriveMotors(Motors.MOTORS, p);
+    var a = Physics.fullAnswer(P, p, ms);
+    var tag = P.toFixed(1) + ' kg / ' + c[1] + ' mm';
+
+    check('theoretical ideal is never slower than stock ' + tag,
+      a.ideal.t_ideal <= a.stock.t + 1e-12);
+
+    // Whatever we tell the user to build must be the quicker of the two real options.
+    var recommended = a.gearingHelps ? a.ideal.t : a.stock.t;
+    check('recommended build is the faster real option ' + tag,
+      recommended <= Math.min(a.stock.t, a.ideal.t) + 1e-12,
+      'recommended ' + recommended.toFixed(6) + ' vs stock ' + a.stock.t.toFixed(6) +
+      ' / geared ' + a.ideal.t.toFixed(6));
+
+    // gearingHelps must agree with the achievable times, not the lossless one.
+    if (a.ideal.t > a.stock.t) {
+      check('does not recommend gearing when it is slower ' + tag, a.gearingHelps === false);
+    }
+  });
+
+  // Tip speed goes as RPM x pulley diameter, so trading one for the other is the
+  // same machine. This is why the two answers land so close together.
+  var p = params({ travel: 820, eta_ext: 1 });
+  var m = motor('1150', p);
+  var a = Physics.solve(m, 66, 0.3, 'continuous', Physics.withParam(p, 'G_ext', 1.0));
+  var b = Physics.solve(m, 80, 0.3, 'continuous', Physics.withParam(p, 'G_ext', 1.30));
+  check('1150x66 and 885x80 are within 1% of each other',
+    Math.abs(a.t - b.t) / a.t < 0.01,
+    a.t.toFixed(4) + ' vs ' + b.t.toFixed(4));
+
+  // Flat optimum: 20% off on the pulley should cost only a few percent.
+  var pd = params({ travel: 820 });
+  var md = motor('1150', pd);
+  var best = Physics.solve(md, 66, 0.3, 'continuous', pd).t;
+  var off = Physics.solve(md, 53, 0.3, 'continuous', pd).t;
+  check('20% pulley error costs under 5%', (off - best) / best < 0.05,
+    (100 * (off - best) / best).toFixed(2) + '%');
+})();
+
 section('Cross-checks: the answer, the table and the charts agree');
 (function () {
   [0, 0.6, 1.0].forEach(function (P) {
