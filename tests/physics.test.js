@@ -145,23 +145,26 @@ section('Spot checks, cascade @ 0.6 kg (section 7)');
 section('Cable force, cascade @ 1.0 kg (section 7)');
 near('F', Physics.cascadeForce(P0, 1.0).F, 40.263, 0.001);
 
-// The "cascade 1150, 1.0 kg" spot-check block in the spec (tau=0.4195, u=0.526,
-// I=5.10, t=0.637/1.014/1.837, stalls at 31 mm) does NOT reproduce at the spec's
-// d_string = 0.6 mm, but reproduces to every digit at d_string = 1.0 mm. It is a
-// stale block from an earlier workbook run with a thicker string. The expected
-// values are kept verbatim and tested against the string diameter they belong to.
-section('Spot check, cascade 1150 @ 1.0 kg  [stale block: d_string = 1.0 mm]');
+// Regenerated at the spec's d_string = 0.6 mm. The original block was computed with
+// a 1.0 mm string and disagreed with the main table for its own cell (0.637 vs the
+// table's 0.6297); SPEC.md now carries these values.
+section('Spot check, cascade 1150 @ 1.0 kg (section 7)');
 (function () {
-  var p = params({ d_string: 1.0 });
-  var m = motor('1150', p);
-  var a = Physics.solve(m, 16, 1.0, 'cascade', p);
-  near('d=16 tau', a.tau, 0.4195, 0.0005);
-  near('d=16 u', a.u, 0.526, 0.0005);
-  near('d=16 I', a.I, 5.10, 0.005);
-  near('d=16 t', a.t, 0.637, TOL_T);
-  near('d=24 t', Physics.solve(m, 24, 1.0, 'cascade', p).t, 1.014, TOL_T);
-  near('d=28 t', Physics.solve(m, 28, 1.0, 'cascade', p).t, 1.837, TOL_T);
-  near('stall diameter', Physics.stallDiameter(m, 1.0, 'cascade', p), 31, TOL_D);
+  var m = motor('1150');
+  var T16 = 0.6297;   // spot-check value for d=16, must be the same cell as the table
+  var a = Physics.solve(m, 16, 1.0, 'cascade', P0);
+  near('d=16 tau', a.tau, 0.4096, 0.0005);
+  near('d=16 u', a.u, 0.514, 0.0005);
+  near('d=16 I', a.I, 4.98, 0.005);
+  near('d=16 t', a.t, T16, TOL_T);
+  near('d=24 t', Physics.solve(m, 24, 1.0, 'cascade', P0).t, 0.9770, TOL_T);
+  near('d=28 t', Physics.solve(m, 28, 1.0, 'cascade', P0).t, 1.6756, TOL_T);
+  // The spot check and the reference table describe the same cell, so the two
+  // expected values must be identical - that is what the original block got wrong.
+  eq('spot-check d=16 agrees with the cascade table cell', T16, T_CASCADE[5][1]);
+  near('d_stall', Physics.stallDiameter(m, 1.0, 'cascade', P0), 31.37, 0.05);
+  check('d=30 still lifts', Physics.solve(m, 30, 1.0, 'cascade', P0) !== null);
+  check('d=32 stalls', Physics.solve(m, 32, 1.0, 'cascade', P0) === null);
 })();
 
 section('Stall diameters @ 1.0 kg (section 7)');

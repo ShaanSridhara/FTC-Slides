@@ -268,7 +268,7 @@ BEST PULLEY DIA (mm), CONTINUOUS
 1.0  26  38  80  80  80  80
 ```
 Spot checks (cascade, 0.6 kg): 1150 @16 mm -> u=0.362, I=3.60 A, window 16–20. 435 @38 mm -> u=0.356, I=3.54 A, window 30–48. 223 @78 mm -> window 60–80.
-Spot check (cascade 1150, 1.0 kg): F=40.263 N; d=16 -> tau=0.4195, u=0.526, I=5.10, t=0.637; d=24 -> t=1.014; d=28 -> t=1.837; stalls at 31 mm.
+Spot check (cascade 1150, 1.0 kg): F=40.263 N; d=16 -> tau=0.4096, u=0.514, I=4.98, t=0.6297; d=24 -> t=0.9770; d=28 -> t=1.6756; stalls at 32 mm (d_stall = 31.37 mm).
 Stall diameter formula: `d_stall = 2000*eta*T_s*G_ext/F - d_string` -> at 1 kg: casc435 75, casc1150 31, cont435 196, cont1150 82.
 With v_cap = 1.5, cascade 0.6 kg: 435 -> 0.527 @30, 223 -> 0.522 @60.
 

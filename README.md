@@ -39,30 +39,35 @@ without a network connection the numbers still work and the charts are skipped.
 node tests/physics.test.js
 ```
 
-223 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
+Assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
 checks, the stall diameters, the tip-speed-cap cases, the two external validation points
 (the goBILDA Viper-Slide kit and FTC team The Clueless), and the section 8 modelling guards.
 The same suite gates deployment in CI.
 
-### One conflict in the spec
+### One correction to the spec
 
-The spec's `Spot check (cascade 1150, 1.0 kg)` block does **not** reproduce at the documented
-`d_string = 0.6 mm`, but reproduces to every digit at `d_string = 1.0 mm`:
+The original `Spot check (cascade 1150, 1.0 kg)` block did not reproduce at the documented
+`d_string = 0.6 mm`, and contradicted the main reference table for its own cell — it gave
+`t = 0.637` where the cascade 1.0 kg / 1150 table entry says `0.6297`. It reproduced to every
+digit at `d_string = 1.0 mm`, so it was a leftover from an earlier workbook run with a thicker
+string.
 
-| | spec block | model @ 0.6 mm | model @ 1.0 mm |
-|---|---|---|---|
-| tau (d=16) | 0.4195 | 0.4096 | 0.4195 |
-| u (d=16) | 0.526 | 0.514 | 0.526 |
-| I (d=16) | 5.10 | 4.98 | 5.10 |
-| t (d=16) | 0.637 | 0.6297 | 0.6373 |
-| t (d=24) | 1.014 | 0.9770 | 1.0138 |
-| t (d=28) | 1.837 | 1.6756 | 1.8371 |
+The block has been regenerated at 0.6 mm and the values in [SPEC.md](SPEC.md) replaced:
 
-It is a stale block left over from an earlier workbook run with a thicker string. Everything
-authoritative — all four reference tables, the 0.6 kg spot checks, the tip-speed-cap checks, and
-the acceptance criteria — requires 0.6 mm, and the model reproduces all of it exactly. So the model
-uses `d_string = 0.6 mm`, and the stale block is kept as a test pinned to the 1.0 mm string it was
-computed with. No expected value was edited.
+| | was (1.0 mm string) | now (0.6 mm string) |
+|---|---|---|
+| tau (d=16) | 0.4195 | 0.4096 |
+| u (d=16) | 0.526 | 0.514 |
+| I (d=16) | 5.10 | 4.98 |
+| t (d=16) | 0.637 | 0.6297 |
+| t (d=24) | 1.014 | 0.9770 |
+| t (d=28) | 1.837 | 1.6756 |
+| stalls at | 31 mm | 32 mm (d_stall = 31.37 mm) |
+
+Everything else in section 7 — all four reference tables, the 0.6 kg spot checks, the stall
+diameters, the tip-speed-cap checks and the acceptance criteria — already required 0.6 mm and is
+reproduced exactly by the model, unchanged. The regenerated `t` at d=16 is now asserted to equal
+the reference table cell, so the two can no longer drift apart.
 
 ## Caveats
 
