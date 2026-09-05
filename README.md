@@ -25,6 +25,46 @@ debounced 200 ms.
 Every constant from the recorded data is baked into `motors.js`. Travel used is the extension
 asked for, not the stack's maximum, and the drag ramp and idler counts regenerate from N.
 
+## Calibration
+
+**Drag calibration factor: `drag_cal = 15.964`.**
+
+The only measured full-system data point is FTC team The Clueless: 708.4 mm in ~0.515 s on two
+435 RPM motors with belt overdrive. Running that configuration — 700 mm, 0.3 kg, 2 motors, 435,
+external ratio free, 3 stages, uncapped — the model returned **0.3159 s** at `drag_cal = 1`, i.e.
+39% too fast. Scaling every `d_i` by one common factor of **15.964** lands it on **0.5150 s**,
+inside the ±0.01 s target.
+
+That factor is large. Total drag goes from 2.40 N to **38.31 N** (d1/d2/d3 = 15.96 / 12.77 /
+9.58 N). It is doing more than modelling friction — it is absorbing everything between this model
+and a real robot on a real field, fitted to a single data point. Treat the drag figures as a
+fitted parameter, not a measurement, and treat absolute times with corresponding caution. A second
+measured point from a different stack would say a great deal about whether 15.964 is friction or a
+catch-all.
+
+Two consequences worth knowing:
+
+- **Torque now beats speed.** At 38 N of drag the 223 RPM motor wins where the 1150 used to, and
+  several single-motor combinations stall outright.
+- **The tip-speed cap barely binds.** Nothing reaches 2 m/s through that much drag, so the default
+  2.0 m/s cap costs almost nothing; the end-stop ramp is what shapes the answer.
+
+## End-stop deceleration
+
+The last `d_stop = 60 mm` of stage travel is a constant-deceleration ramp aiming to arrive at the
+end stop at `v_stop = 0.3 m/s` — per phase for continuous, once for cascade. The ramp is limited by
+what the motor can actually brake with: regen torque `T_stall × w/w_free` at the entry speed, plus
+the load torque already opposing the lift. If that is not enough the stage arrives faster and the
+page reports the real impact speed and warns.
+
+This is what flipped the rigging verdict. Continuous pays N of these ramps to cascade's one, and
+each one throws away the momentum that used to carry between phases — worth 34% before. **Cascade
+now wins by 27%** at the defaults, where it used to lose by 3%.
+
+Sliding drag is also velocity-dependent now: `d_i(v) = d_i × (1 + k_v·v)` with `k_v = 0.5 s/m`,
+evaluated at the phase's own steady sliding speed (settled in three passes, since the speed sets
+the drag which sets the speed).
+
 ## The physics
 
 For every combination it works out the cable force, solves the motor operating point in closed
@@ -60,7 +100,7 @@ without a network connection the numbers still work and the charts are skipped.
 node tests/physics.test.js
 ```
 
-677 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
+666 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
 checks, the stall diameters, the tip-speed-cap cases, the two external validation points
 (the goBILDA Viper-Slide kit and FTC team The Clueless), the section 8 modelling guards, and the
 addendum's rigging pick and gearing optimizer. It also cross-checks that the answer block, the

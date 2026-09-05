@@ -228,49 +228,53 @@ External:
 - goBILDA 2-stage Viper-Slide kit: 488 mm travel, 112 mm-circumference pulley, 435 RPM motor, "~4.4 rotations", "~0.6 s". Model: 488/112 = 4.357 rev (confirms continuous take-up = total travel, not travel/N); 488/(435/60*112) = 0.601 s (confirms their 0.6 s is free-speed, zero-load).
 - FTC team The Clueless (CENTERSTAGE): 708.4 mm in <0.515 s with two 435s on belt overdrive = 1.376 m/s avg. Model, one 435, 700 mm, capped 1.5 m/s: 1.426 m/s avg. 3.7% apart.
 
-Internal reference outputs — defaults above, travel 700, v_cap 0. Columns: 1620, 1150, 435, 312, 223, 117.
+Internal reference outputs — defaults above, travel 700, v_cap 0 (physics ceiling), one motor.
+RECOMPUTED for ADDENDUM 4: end-stop deceleration, velocity-dependent drag, and the drag
+calibration factor of 15.964. These supersede the original workbook figures and are model output,
+not independently verified data. STALL means no buildable pulley lifts the load.
+Columns: 1620, 1150, 435, 312, 223, 117.
 
 BEST EXTENSION TIME (s), CASCADE
 ```
 kg   1620    1150    435     312     223     117
-0.0  0.2757  0.2646  0.2733  0.2873  0.3174  0.5149
-0.2  0.3569  0.3423  0.3565  0.3698  0.3669  0.5453
-0.4  0.4439  0.4089  0.4293  0.4469  0.4220  0.5781
-0.6  0.5543  0.4720  0.4984  0.5207  0.4847  0.6137
-0.8  0.7107  0.5430  0.5662  0.5938  0.5500  0.6527
-1.0  0.9738  0.6297  0.6344  0.6673  0.6150  0.6955
+0.0  1.8846  0.7568  0.7264  0.7647  0.7038  0.7622
+0.2  31.4331  0.9358  0.7942  0.8399  0.7693  0.8138
+0.4  STALL   1.2266  0.8657  0.9191  0.8346  0.8783
+0.6  STALL   1.7568  0.9397  0.9983  0.9053  0.9511
+0.8  STALL   3.1102  1.0137  1.0771  0.9757  1.0254
+1.0  STALL   15.9686  1.0851  1.1552  1.0457  1.0997
 ```
 BEST EXTENSION TIME (s), CONTINUOUS
 ```
-0.0  0.2388  0.2358  0.4268  0.5707  0.7673  1.4149
-0.2  0.3309  0.3183  0.4616  0.6017  0.7912  1.4369
-0.4  0.4055  0.3902  0.4997  0.6351  0.8162  1.4597
-0.6  0.4746  0.4568  0.5419  0.6713  0.8426  1.4831
-0.8  0.5419  0.5215  0.5891  0.7109  0.8705  1.5073
-1.0  0.6092  0.5859  0.6425  0.7545  0.9000  1.5322
+0.0  0.9851  0.9424  0.9999  1.0583  1.1255  1.6841
+0.2  1.0593  1.0150  1.0773  1.1297  1.1642  1.7096
+0.4  1.1268  1.0824  1.1501  1.2057  1.2050  1.7357
+0.6  1.1975  1.1461  1.2202  1.2797  1.2480  1.7627
+0.8  1.2752  1.2081  1.2884  1.3522  1.2935  1.7904
+1.0  1.3617  1.2709  1.3560  1.4237  1.3417  1.8189
 ```
 BEST PULLEY DIA (mm), CASCADE
 ```
-0.0  20  28  70  80  80  80
-0.2  16  22  54  72  80  80
-0.4  16  18  44  60  80  80
-0.6  16  16  38  52  78  80
-0.8  16  16  34  46  70  80
-1.0  16  16  30  40  62  80
+0.0  16      16      28      36      56      80
+0.2  16      16      24      32      50      80
+0.4  STALL   16      22      30      46      80
+0.6  STALL   16      20      28      42      78
+0.8  STALL   16      20      26      40      72
+1.0  STALL   16      18      24      36      66
 ```
 BEST PULLEY DIA (mm), CONTINUOUS
 ```
-0.0  74  80  80  80  80  80
-0.2  50  72  80  80  80  80
-0.4  40  58  80  80  80  80
-0.6  34  50  80  80  80  80
-0.8  30  44  80  80  80  80
-1.0  26  38  80  80  80  80
+0.0  20      28      70      80      80      80
+0.2  18      26      62      80      80      80
+0.4  16      24      58      76      80      80
+0.6  16      22      54      70      80      80
+0.8  16      20      50      66      80      80
+1.0  16      20      46      62      80      80
 ```
-Spot checks (cascade, 0.6 kg): 1150 @16 mm -> u=0.362, I=3.60 A, window 16–20. 435 @38 mm -> u=0.356, I=3.54 A, window 30–48. 223 @78 mm -> window 60–80.
-Spot check (cascade 1150, 1.0 kg): F=40.263 N; d=16 -> tau=0.4096, u=0.514, I=4.98, t=0.6297; d=24 -> t=0.9770; d=28 -> t=1.6756; stalls at 32 mm (d_stall = 31.37 mm).
-Stall diameter formula: `d_stall = 2000*eta*T_s*G_ext/F - d_string` -> at 1 kg: casc435 75, casc1150 31, cont435 196, cont1150 82.
-With v_cap = 1.5, cascade 0.6 kg: 435 -> 0.527 @30, 223 -> 0.522 @60.
+Spot checks (cascade, 0.6 kg): 1150 @16 mm -> u=0.860, I=8.12 A, window 16–16. 435 @20 mm -> u=0.463, I=4.52 A, window 16–24. 223 @42 mm -> window 34–52.
+Spot check (cascade 1150, 1.0 kg): F=76.177 N at zero sliding speed. Only the 16 mm pulley still lifts, at t=15.97 s (d_stall = 16.30 mm).
+Stall diameter formula: `d_stall = 2000*eta*T_s*G_ext/F - d_string` -> at 1 kg: casc435 39, casc1150 16, cont435 98, cont1150 41.
+With v_cap = 1.5, cascade 0.6 kg: 435 -> 0.940 @20, 223 -> 0.905 @42 — identical to the uncapped values, because after calibration nothing reaches 1.5 m/s.
 
 ---
 

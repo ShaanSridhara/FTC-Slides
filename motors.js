@@ -23,7 +23,7 @@
     travel: 700,          // mm
     rigging: 'cascade',   // cascade | continuous
     payload: 0.6,         // kg
-    v_cap: 0,             // m/s, 0 = none
+    v_cap: 2.0,           // m/s tip-speed cap; 0 = uncapped physics ceiling
 
     // --- geometry and masses ---
     N: 3,                 // stages
@@ -33,6 +33,14 @@
     m_c: 0.050,           // kg carriage / plate
     F_spring: 0,          // N assist at cable, negative fights extension
     g: 9.80665,           // m/s^2
+
+    // --- sliding drag model ---
+    k_v: 0.5,             // s/m, drag rises as d_i * (1 + k_v * sliding speed)
+    drag_cal: 15.964,     // see CALIBRATION note below
+
+    // --- end-stop deceleration ---
+    d_stop: 60,           // mm of stage travel given over to the decel ramp
+    v_stop: 0.3,          // m/s target speed at the end stop
 
     // --- drive ---
     n_motors: 1,
@@ -61,6 +69,18 @@
     d_min: 16,            // mm
     d_max: 80             // mm
   };
+
+  // CALIBRATION
+  // The only measured full-system data point is FTC team The Clueless: 708.4 mm
+  // in ~0.515 s on two 435 RPM motors with belt overdrive. Running that config
+  // (700 mm, 0.3 kg, 2 motors, 435, G_ext free, 3 stages, uncapped) the model
+  // returned 0.3159 s at drag_cal = 1 - 39% too fast. Scaling every d_i by one
+  // common factor of 15.964 lands it on 0.5150 s.
+  //
+  // That factor is large: total drag goes from 2.40 N to 38.31 N. It is doing
+  // more than modelling friction - it is absorbing everything between this model
+  // and a real robot on a real field, on the strength of one data point. Treat
+  // the drag figures as a fitted parameter, not a measurement.
 
   // Per-interface sliding drag, falling toward the top of the stack but never
   // below 0.4 N. i is 1-based: interface 1 is base-to-stage-1.

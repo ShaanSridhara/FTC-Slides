@@ -404,3 +404,12 @@ tr.stalled td { color: var(--ink-3); }
 .ans.pending .ans-head h3 { color: var(--ink-3); }
 .ans.pending { opacity: 0.55; }
 td small { color: var(--ink-3); font-size: 11px; }
+
+.ceiling {
+  margin: 14px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.ceiling .dim { color: var(--ink-3); font-size: 12px; }

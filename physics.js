@@ -39,6 +39,7 @@
     for (i = 1; i <= p.N; i++) {
       var di = p['d' + i];
       if (!isFinite(di)) di = Motors.defaultDrag(i);
+      di *= (isFinite(p.drag_cal) ? p.drag_cal : 1);   // calibration scale
       p.drags.push(di);
       p['d' + i] = di;
       p.d_tot += di;
@@ -87,10 +88,14 @@
     return p.G_ext === 1 ? base : base * p.eta_ext;
   }
 
+  // Sliding drag rises with how fast the interface is actually sliding.
+  // v is the relative (cable) speed, which is what each interface sees.
+  function dragMult(p, v) { return 1 + p.k_v * (v > 0 ? v : 0); }
+
   // Cascade: all N stages move together at ratios 1:2:..:N, every drag at once.
   // Stage i moves i times the cable, so it contributes i*m_i to the force and
   // i^2*m_i to the inertia seen at the drum. The top stage carries m_c + payload.
-  function cascadeForce(p, payload) {
+  function cascadeForce(p, payload, vSlide) {
     var sumF = 0, m_eff = 0, m_tip = 0;
     for (var i = 1; i <= p.N; i++) {
       var mi = p.masses[i - 1] + (i === p.N ? p.m_c + payload : 0);
@@ -101,7 +106,7 @@
     return {
       m_tip: m_tip,
       F_grav: p.g * sumF,
-      F: p.g * sumF + p.d_tot - p.F_spring,
+      F: p.g * sumF + p.d_tot * dragMult(p, vSlide) - p.F_spring,
       m_eff: m_eff
     };
   }
@@ -112,7 +117,7 @@
   function phaseName(k) {
     return k <= 26 ? String.fromCharCode(64 + k) : String(k);
   }
-  function continuousPhases(p, payload) {
+  function continuousPhases(p, payload, vSlide) {
     var out = [], M = 0;
     for (var k = 1; k <= p.N; k++) {
       var stage = p.N - k + 1;                       // the stage that joins this phase
@@ -121,7 +126,7 @@
         name: phaseName(k),
         stage: stage,
         M: M,
-        F: p.g * M + p.drags[stage - 1] - p.F_spring
+        F: p.g * M + p.drags[stage - 1] * dragMult(p, vSlide) - p.F_spring
       });
     }
     return out;
@@ -192,62 +197,123 @@
     return { t: t, w_end: speedAt(t, w_ss, w0, tau_c), capped: false, tau_c: tau_c };
   }
 
+  // ------------------------------------------------- end-stop deceleration
+
+  // The last d_stop of stage travel is given over to a constant-deceleration
+  // ramp aiming to arrive at the end stop at v_stop. The motor can only brake as
+  // hard as its regen torque at the entry speed plus the load torque it was
+  // already fighting; if that is not enough, the stage arrives faster than the
+  // target and the impact speed is reported.
+  function decelRamp(motor, p, tau_load, J, theta_stop, w_enter, w_stop) {
+    if (!(theta_stop > 0)) return { t: 0, w_end: w_enter, limited: false };
+    if (w_enter <= w_stop) {
+      // Already slower than the target; coast the last stretch.
+      return { t: theta_stop / Math.max(w_enter, 1e-9), w_end: w_enter, limited: false };
+    }
+    var alpha_req = (w_enter * w_enter - w_stop * w_stop) / (2 * theta_stop);
+    var tau_regen = p.n_motors * motor.T_stall * (w_enter / motor.w_free);
+    var alpha_max = (tau_regen + tau_load) / J;
+    var limited = alpha_max < alpha_req;
+    var alpha = limited ? alpha_max : alpha_req;
+    if (!(alpha > 0)) return { t: theta_stop / w_enter, w_end: w_enter, limited: true };
+    var w_end = limited
+      ? Math.sqrt(Math.max(0, w_enter * w_enter - 2 * alpha * theta_stop))
+      : w_stop;
+    return { t: (w_enter - w_end) / alpha, w_end: w_end, limited: limited, alpha: alpha };
+  }
+
   // ---------------------------------------------------------------- one point
 
+  // Settle the operating point against speed-dependent drag: the sliding speed
+  // sets the drag, the drag sets the force, the force sets the speed. Three
+  // passes is plenty - it converges monotonically.
+  function settle(makeForce, r, eta, motor, p) {
+    var v = 0, F = 0, op = null;
+    for (var i = 0; i < 3; i++) {
+      F = makeForce(v);
+      op = operatingPoint(F, r, eta, motor, p);
+      if (!(op.u < 1)) break;
+      v = op.w_ss * r / p.G_ext;                     // relative (cable) speed
+    }
+    return { F: F, op: op, v: v };
+  }
+
   // Extension time for one (motor, pulley diameter, payload, rigging). null = STALL.
+  // Every move ends with a deceleration ramp into the end stop.
   function solve(motor, d_mm, payload, rigging, p) {
     var r = radius(d_mm, p);
     var E = p.travel / 1000;
     var w_cap = 0;
+    var theta_stage = (E / p.N) / r * p.G_ext;                 // per stage / per phase
+    var theta_stop = Math.min((p.d_stop / 1000) / r * p.G_ext, theta_stage);
+    var theta_run = theta_stage - theta_stop;
+    var w_stop = p.v_stop * p.G_ext / r;                       // motor speed at the stop
 
     if (rigging === 'continuous') {
       var eta_k = effEta(p, p.eta_k);
-      var phases = continuousPhases(p, payload);
-      var theta = (E / p.N) / r * p.G_ext;            // per phase
       if (p.v_cap > 0) w_cap = p.v_cap * p.G_ext / r;
-      var t_total = 0, w0 = 0, out = [];
-      for (var i = 0; i < phases.length; i++) {
-        var ph = phases[i];
-        var op = operatingPoint(ph.F, r, eta_k, motor, p);
-        // Both the spool inertia and the reflected load are seen through G_ext^2.
+      var t_total = 0, w0 = 0, out = [], stopped = 0;
+
+      for (var i = 0; i < p.N; i++) {
+        var idx = i;
+        var st = settle(function (v) {
+          return continuousPhases(p, payload, v)[idx].F;
+        }, r, eta_k, motor, p);
+        if (!(st.op.u < 1)) return null;                       // this phase stalls
+
+        var ph = continuousPhases(p, payload, st.v)[idx];
         var J = p.n_motors * motor.J_rot + p.J_sp / (p.G_ext * p.G_ext) +
                 r * r * ph.M / (p.G_ext * p.G_ext * eta_k);
-        var s = solvePhase(op, J, theta, w0, w_cap);
-        if (!s) return null;                          // any phase stalls -> no lift
-        t_total += s.t;
-        w0 = s.w_end;
-        out.push({ phase: ph.name, F: ph.F, op: op, t: s.t, w_end: s.w_end, capped: s.capped });
+
+        var run = solvePhase(st.op, J, theta_run, w0, w_cap);
+        if (!run) return null;
+        var stop = decelRamp(motor, p, st.op.tau, J, theta_stop, run.w_end, w_stop);
+
+        t_total += run.t + stop.t;
+        w0 = stop.w_end;
+        if (stop.limited) stopped++;
+        out.push({ phase: ph.name, F: ph.F, op: st.op, t: run.t + stop.t,
+                   t_run: run.t, t_stop: stop.t, w_end: stop.w_end,
+                   capped: run.capped, hard: stop.limited });
       }
+
       var last = out[out.length - 1];
+      var phasesF = continuousPhases(p, payload, last.op.w_ss * r / p.G_ext);
       return {
         t: t_total, d: d_mm, r: r, phases: out,
-        F_peak: phases[phases.length - 1].F,          // the last phase carries the whole stack
-        op: last.op,                                  // worst-case operating point
-        u: last.op.u, I: last.op.I, tau: last.op.tau,
-        takeup: E,                                    // continuous: total travel
+        F_peak: phasesF[phasesF.length - 1].F,
+        op: last.op, u: last.op.u, I: last.op.I, tau: last.op.tau,
+        takeup: E,                                             // continuous: total travel
         v_avg: E / t_total,
         v_end: last.w_end * r / p.G_ext,
+        v_impact: last.w_end * r / p.G_ext,                    // relative, at the end stop
+        hard_stop: stopped > 0,
         capped: out.some(function (o) { return o.capped; })
       };
     }
 
-    // cascade
+    // cascade - one move, all stages together, one end stop
     var eta_c = effEta(p, p.eta_c);
-    var c = cascadeForce(p, payload);
-    var op2 = operatingPoint(c.F, r, eta_c, motor, p);
+    var sc = settle(function (v) { return cascadeForce(p, payload, v).F; },
+                    r, eta_c, motor, p);
+    if (!(sc.op.u < 1)) return null;
+    var c = cascadeForce(p, payload, sc.v);
     var J2 = p.n_motors * motor.J_rot + p.J_sp / (p.G_ext * p.G_ext) +
              r * r * c.m_eff / (p.G_ext * p.G_ext * eta_c);
-    var theta2 = (E / p.N) / r * p.G_ext;
     if (p.v_cap > 0) w_cap = p.v_cap * p.G_ext / (p.N * r);
-    var s2 = solvePhase(op2, J2, theta2, 0, w_cap);
-    if (!s2) return null;
+    var run2 = solvePhase(sc.op, J2, theta_run, 0, w_cap);
+    if (!run2) return null;
+    var stop2 = decelRamp(motor, p, sc.op.tau, J2, theta_stop, run2.w_end, w_stop);
+
     return {
-      t: s2.t, d: d_mm, r: r, phases: null,
-      F_peak: c.F, op: op2, u: op2.u, I: op2.I, tau: op2.tau,
-      takeup: E / p.N,                                // cascade: travel / N
-      v_avg: E / s2.t,
-      v_end: p.N * s2.w_end * r / p.G_ext,
-      capped: s2.capped
+      t: run2.t + stop2.t, d: d_mm, r: r, phases: null,
+      F_peak: c.F, op: sc.op, u: sc.op.u, I: sc.op.I, tau: sc.op.tau,
+      takeup: E / p.N,                                         // cascade: travel / N
+      v_avg: E / (run2.t + stop2.t),
+      v_end: p.N * stop2.w_end * r / p.G_ext,
+      v_impact: stop2.w_end * r / p.G_ext,                     // relative, at the end stop
+      hard_stop: stop2.limited,
+      capped: run2.capped
     };
   }
 
@@ -651,6 +717,9 @@
     speedAt: speedAt,
     newtonTime: newtonTime,
     solvePhase: solvePhase,
+    decelRamp: decelRamp,
+    dragMult: dragMult,
+    settle: settle,
     solve: solve,
     effEta: effEta,
     diameters: diameters,

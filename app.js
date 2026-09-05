@@ -6,7 +6,7 @@
   var CLIP = 1.6;         // the diameter chart hides anything above 1.6x its best
   var DEBOUNCE = 200;     // ms
 
-  var INPUT_DEFAULTS = { extension: 700, payload: 0.6, v_cap: 0 };
+  var INPUT_DEFAULTS = { extension: 700, payload: 0.6, v_cap: 2.0 };
 
   var COLORS = ['#1f5fd0', '#e2574c', '#0d9b6c', '#c9821a', '#7b52c9', '#4a5666'];
 
@@ -58,7 +58,8 @@
       stat('Pulley window', f(c.window[0], 0) + '&ndash;' + f(c.window[1], 0), 'mm') +
       stat('Retracted height', f(c.height, 0), 'mm') +
       stat('Stroke spare', f(c.leftover, 0), 'mm') +
-      stat('Torque used', f(100 * c.res.u, 1), '% of stall');
+      stat('Torque used', f(100 * c.res.u, 1), '% of stall') +
+      stat('End-stop impact', f(c.res.v_impact, 2), 'm/s');
   }
 
   function warnings(c) {
@@ -74,6 +75,12 @@
       out.push('Running at <b>' + f(100 * c.res.u, 0) + '% of stall torque</b> &mdash; hot, and ' +
         'close to the cliff. A smaller pulley buys margin.');
     }
+    if (c.res.hard_stop) {
+      out.push('The motor cannot brake hard enough over the last ' +
+        f(c.params.d_stop, 0) + ' mm: it hits the end stop at <b>' +
+        f(c.res.v_impact, 2) + ' m/s</b> instead of ' + f(c.params.v_stop, 2) +
+        ' m/s. Expect a bang.');
+    }
     if (c.leftover < 0.02 * c.N * c.slide.stroke) {
       out.push('Only <b>' + f(c.leftover, 0) + ' mm</b> of stroke spare &mdash; almost no margin ' +
         'for rigging losses or a hard stop.');
@@ -81,7 +88,7 @@
     return out.map(function (m) { return '<div class="flag">' + m + '</div>'; }).join('');
   }
 
-  function stockCard(best, fastest) {
+  function stockCard(best, fastest, inp) {
     return '<div class="ans">' +
       '<div class="ans-head"><h3>Answer 1 &mdash; Stock' +
         (fastest ? ' <span class="fastest">FASTEST</span>' : '') + '</h3>' +
@@ -93,7 +100,22 @@
         '<div class="headline">In <strong class="big">' + f(best.t, 3) + '</strong> s</div>' +
       '</div>' +
       '<div class="stats">' + buildStats(best) + '</div>' +
-      warnings(best) + '</div>';
+      ceilingLines(best, inp) + warnings(best) + '</div>';
+  }
+
+  // What the same build would do with no cap and no end-stop ramp - the headroom
+  // the two are costing, so the user can see what is physics and what is policy.
+  function ceilingLines(best, inp) {
+    var free = Physics.withParam(Physics.withParam(best.params, 'v_cap', 0), 'd_stop', 0);
+    var bt = Infinity;
+    Physics.diameters(free).forEach(function (d) {
+      var r = Physics.solve(best.motor, d, inp.payload, best.rigging, free);
+      if (r && r.t < bt) bt = r.t;
+    });
+    if (!isFinite(bt)) return '';
+    return '<p class="ceiling">Physics ceiling (no cap, no decel): <b>' + f(bt, 3) + ' s</b>' +
+      '<br><span class="dim">The cap and the ' + f(best.params.d_stop, 0) +
+      ' mm stopping ramp cost ' + f(best.t - bt, 3) + ' s of that.</span></p>';
   }
 
   function gearedCard(res, fastest) {
@@ -102,18 +124,26 @@
         '<p class="ans-sub">Searching every external ratio&hellip;</p></div></div>';
     }
     var g = res.geared, b = g.best, helps = res.gearingHelps;
+    // Grey it out only when it is actually not faster. A sub-2% win is still a
+    // win - it just is not worth the extra parts, which the verdict says.
+    var faster = res.gain > 0;
     var reach = b.G_ext === 1
       ? 'No external stage &mdash; the pulley alone sets the ratio.'
       : 'Gear the <b>' + esc(b.motor.name) + '</b> at <b>' + f(b.G_ext, 2) + ':1</b>' +
         (g.teeth ? ' (&asymp; ' + g.teeth.driven + 'T:' + g.teeth.driver + 'T)' : '') + '.';
 
-    var verdict = helps
-      ? '<div class="flag good">Worth building: <b>' + f(res.gain, 1) +
-        '% faster</b> than Answer 1.</div>'
-      : '<div class="flag">Gearing doesn&rsquo;t help &mdash; build Answer 1.' +
-        (res.gain > 0.05 ? ' It would gain only ' + f(res.gain, 1) + '%.' : '') + '</div>';
+    var verdict;
+    if (helps) {
+      verdict = '<div class="flag good">Worth building: <b>' + f(res.gain, 1) +
+        '% faster</b> than Answer 1.</div>';
+    } else if (faster) {
+      verdict = '<div class="flag">Fastest, but only by <b>' + f(res.gain, 1) +
+        '%</b>. Answer 1 is simpler to build for almost the same time.</div>';
+    } else {
+      verdict = '<div class="flag">Gearing doesn&rsquo;t help &mdash; build Answer 1.</div>';
+    }
 
-    return '<div class="ans' + (helps ? '' : ' muted') + '">' +
+    return '<div class="ans' + (faster ? '' : ' muted') + '">' +
       '<div class="ans-head"><h3>Answer 2 &mdash; Geared' +
         (fastest ? ' <span class="fastest">FASTEST</span>' : '') + '</h3>' +
         '<p class="ans-sub">Same search plus an external ratio</p></div>' +
@@ -276,7 +306,7 @@
     // Answer 1, the table and the charts are cheap - paint them now. The geared
     // search sweeps 113 ratios across every stack, so it runs on the next tick
     // and fills Answer 2 in when it lands.
-    $('answer-body').innerHTML = stockCard(stock.best, true) + gearedCard(null);
+    $('answer-body').innerHTML = stockCard(stock.best, true, inp) + gearedCard(null);
     renderTable(stock);
     renderCharts(stock.best, inp);
 
@@ -286,7 +316,7 @@
       if (me !== runId || !full.geared || !full.geared.best) return;
       var gearedWins = full.geared.best.t < stock.best.t - 1e-9;
       $('answer-body').innerHTML =
-        stockCard(stock.best, !gearedWins) + gearedCard(full, gearedWins);
+        stockCard(stock.best, !gearedWins, inp) + gearedCard(full, gearedWins);
     }, 0);
   }
 
