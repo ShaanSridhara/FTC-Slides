@@ -32,6 +32,37 @@ Both riggings are solved for every input and the faster one wins. The answer sta
 the margin, e.g. `Rigging: continuous (0.457 s) — cascade would be 0.472 s (+3.3%)`. The result
 table follows the winner, with a toggle for the loser; the charts always show both.
 
+### Why continuous usually wins, and why that is not a confident result
+
+Continuous beats cascade at almost every payload here, by 3-5%. That is a real consequence of the
+model, not a coding slip — the implementation reproduces all 144 reference-table cells exactly, and
+an energy audit confirms both riggings do identical work (6.0889 J at 0.6 kg, matching the true
+lift work of raising stage 1 by E/3, stage 2 by 2E/3 and the tip by E). Neither rigging is a free
+lunch; they differ only in how that work is spread over time.
+
+Cascade trades 3x force for 3x tip speed and winds `travel/3` of cable. Continuous winds the full
+`travel` against the plain stack weight. What decides it is the spec's assumption that continuous
+extends **one stage at a time, top first** — uniform string tension with no kinematic coupling, so
+the least-loaded stage moves first. That lets the motor spin up on the light top stage (0.74 kg)
+and carry that momentum into the heavy final phase. Cascade, kinematically locked, fights the full
+28.5 N from a standstill.
+
+That single assumption is load-bearing. Modelled the other way — all three stages moving together —
+**cascade wins at every payload by roughly 9%**:
+
+| payload | cascade | continuous (sequential) | continuous (simultaneous) |
+|---|---|---|---|
+| 0.0 kg | 0.2646 | **0.2358** | 0.2981 |
+| 0.6 kg | 0.4720 | **0.4568** | 0.5172 |
+| 2.0 kg | 0.9493 | **0.9143** | 0.9759 |
+
+So treat the rigging verdict as weak. The 3.3% margin at the defaults sits inside the model's own
+~10% accuracy, and the page says so rather than pretending otherwise. Cascade takes the lead
+outright when it is built with fewer idlers than the assumed five (3 idlers flips it), at heavy
+payload (6 kg), and it is a dead heat under a tip-speed cap (0.1%). It is *not* an artifact of the
+16 mm pulley floor — cascade's optimum genuinely sits near 16 mm, and a 4 mm floor changes its time
+by less than 0.002 s.
+
 ### Two answers
 
 **Answer 1 — Stock** is what you build: direct drive (`G_ext = 1`), six motors x 33 pulley
@@ -72,7 +103,7 @@ without a network connection the numbers still work and the charts are skipped.
 node tests/physics.test.js
 ```
 
-354 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
+361 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
 checks, the stall diameters, the tip-speed-cap cases, the two external validation points
 (the goBILDA Viper-Slide kit and FTC team The Clueless), the section 8 modelling guards, and the
 addendum's rigging pick and gearing optimizer. It also cross-checks that the answer block, the

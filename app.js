@@ -104,6 +104,11 @@
            (u ? ' <small>' + u + '</small>' : '') + '</div></div>';
   }
 
+  // The model's own stated accuracy is about 10%, because the drags, hardware and
+  // carriage masses and the motor time constant are estimates rather than
+  // measurements. A rigging "win" narrower than that is not a real result.
+  var RIGGING_NOISE = 10;
+
   function riggingLine(stock) {
     if (!stock.rigging) return '';
     var s = '<span class="rig-pick">Rigging: <b>' + esc(stock.rigging) + '</b> (' +
@@ -113,6 +118,17 @@
            f(stock.t_other, 3) + ' s (+' + f(stock.margin, 1) + '%)</span>';
     }
     return s;
+  }
+
+  function riggingCaveat(stock) {
+    if (!stock.other || stock.margin >= RIGGING_NOISE) return '';
+    return '<div class="flag tie">Too close to call. ' +
+      '<b>' + f(stock.margin, 1) + '%</b> is inside this model&rsquo;s own ~10% accuracy, and it ' +
+      'rests on continuous rigging extending one stage at a time (top first), which is what lets ' +
+      'the motor build speed on the light top stage before it lifts the whole stack. If your ' +
+      'continuous build extends all three stages together instead, cascade wins by roughly 9%. ' +
+      'Treat these two as tied and pick on build quality &mdash; a cascade with fewer idlers than ' +
+      'the assumed five takes the lead outright.</div>';
   }
 
   // Answer 1 - stock, direct drive.
@@ -195,6 +211,7 @@
 
     if (!stock.best) {
       $('rigging-line').innerHTML = '';
+      $('rigging-caveat').innerHTML = '';
       $('answer-body').innerHTML = '<div class="flag stall">Every motor stalls at every pulley ' +
         'from ' + f(p.d_min, 0) + ' to ' + f(p.d_max, 0) + ' mm, on both riggings. ' +
         'Lower the payload, or allow a smaller pulley.</div>';
@@ -202,6 +219,7 @@
     }
 
     $('rigging-line').innerHTML = riggingLine(stock);
+    $('rigging-caveat').innerHTML = riggingCaveat(stock);
     $('answer-body').innerHTML = stockCard(stock, p) +
       (full.ideal ? idealCard(full, p) : '');
 

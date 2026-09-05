@@ -433,6 +433,46 @@ section('Ideal output RPM is a real, input-dependent quantity');
   check('and the RPM gap is reported', a.rpmGap > 0);
 })();
 
+section('Rigging verdict: energy audit and how narrow the win is');
+(function () {
+  // Both riggings must do exactly the true lift work - no rigging is a free lunch.
+  // Cascade winds travel/N against N-amplified force; continuous winds travel
+  // against the plain stack weight, in three phases.
+  var P = 0.6, E = P0.travel / 1000, mt = P0.m3 + P0.m_c + P;
+  var trueWork = P0.g * (P0.m1 * E / 3 + P0.m2 * 2 * E / 3 + mt * E);
+  var noDrag = params({ d1: 0, d2: 0, d3: 0 });
+  var wCasc = Physics.cascadeForce(noDrag, P).F * (E / noDrag.N);
+  var ph = Physics.continuousPhases(noDrag, P);
+  var wCont = (ph[0].F + ph[1].F + ph[2].F) * (E / noDrag.N);
+  near('cascade does the true lift work', wCasc, trueWork, 1e-9);
+  near('continuous does the true lift work', wCont, trueWork, 1e-9);
+
+  // Continuous wins at the defaults, but only just.
+  var a = Physics.stockAnswer(0.6, P0, MOTORS);
+  eq('continuous wins at the defaults', a.rigging, 'continuous');
+  check('and the margin is inside the model accuracy', a.margin < 10,
+    'margin ' + a.margin.toFixed(1) + '%');
+
+  // The win is not an artifact of the 16 mm build floor: cascade's optimum is
+  // genuinely near 16 mm, so letting it go smaller barely helps.
+  var loose = params({ d_min: 4 });
+  var lm = Physics.deriveMotors(Motors.MOTORS, loose);
+  var free = Physics.sweepMotor(motor('1150', loose), 0.6, 'cascade', loose);
+  var pinned = Physics.sweepMotor(motor('1150'), 0.6, 'cascade', P0);
+  check('a 4 mm pulley floor barely helps cascade',
+    Math.abs(free.best_t - pinned.best_t) < 0.002,
+    free.best_t.toFixed(4) + ' vs ' + pinned.best_t.toFixed(4));
+
+  // Cascade does take the lead at heavy payload.
+  var heavy = Physics.stockAnswer(6.0, P0, MOTORS);
+  eq('cascade wins at 6 kg', heavy.rigging, 'cascade');
+
+  // And a cascade with fewer idlers than assumed wins outright.
+  var lean = params({ n_idler_c: 3 });
+  var leanM = Physics.deriveMotors(Motors.MOTORS, lean);
+  eq('cascade with 3 idlers wins', Physics.stockAnswer(0.6, lean, leanM).rigging, 'cascade');
+})();
+
 section('Cross-checks: the answer, the table and the charts agree');
 (function () {
   [0, 0.6, 1.0].forEach(function (P) {

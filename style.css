@@ -378,3 +378,10 @@ tr.stalled td { color: var(--ink-3); }
 
 .wide-chart { margin-top: 18px; }
 .chart-box.tall { height: 380px; }
+
+.flag.tie {
+  margin: 0 0 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+#rigging-caveat:not(:empty) { margin-bottom: 10px; }
