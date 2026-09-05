@@ -345,89 +345,84 @@
     return best;
   }
 
-  // Answer 2 (GEARED): search base motor x external ratio x pulley x rigging.
-  // Returns the winner plus the per-motor curves chart 5 needs.
+  // Sweep base motor x external ratio x pulley x rigging. Returns the argmin.
+  // Charges whatever eta_ext the caller's params carry.
   function gearedAnswer(payload, p, motors) {
     var grid = gearGrid(p);
     var ds = diameters(p);
     var best = null;
-    var curves = [];        // per motor: {motor, points:[{rpm, G_ext, t, d}]}
 
     for (var mi = 0; mi < motors.length; mi++) {
-      var motor = motors[mi];
-      var pts = [];
       for (var gi = 0; gi < grid.length; gi++) {
-        var g = grid[gi];
-        var pg = withParam(p, 'G_ext', g);
-        var atG = null;                          // best over d and rigging at this ratio
-        var byRig = {};                          // and the best per rigging, for chart 5
+        var pg = withParam(p, 'G_ext', grid[gi]);
         for (var ri = 0; ri < RIGGINGS.length; ri++) {
-          var rig = RIGGINGS[ri];
-          byRig[rig] = null;
           for (var di = 0; di < ds.length; di++) {
-            var res = solve(motor, ds[di], payload, rig, pg);
+            var res = solve(motors[mi], ds[di], payload, RIGGINGS[ri], pg);
             if (!res) continue;                  // STALL never enters the argmin
-            var cand = { motor: motor, G_ext: g, d: ds[di], rigging: rig,
-                         t: res.t, res: res, params: pg };
+            var cand = { motor: motors[mi], G_ext: grid[gi], d: ds[di],
+                         rigging: RIGGINGS[ri], t: res.t, res: res };
             if (preferred(cand, best)) best = cand;
-            if (!atG || res.t < atG.t) atG = cand;
-            if (byRig[rig] === null || res.t < byRig[rig]) byRig[rig] = res.t;
           }
         }
-        if (atG) pts.push({ rpm: motor.rpm_free / g, G_ext: g, t: atG.t, d: atG.d,
-                            rigging: atG.rigging, byRig: byRig });
       }
-      pts.sort(function (a, b) { return a.rpm - b.rpm; });
-      curves.push({ motor: motor, points: pts });
+    }
+    return { best: best, grid: grid };
+  }
+
+  // The ideal output RPM: the total-ratio optimum, found on a level playing field.
+  //
+  // eta_ext is a step cost - it is charged at every ratio except exactly 1.0. Asking
+  // "what ratio is best" while one ratio alone is handed a 5% discount just returns
+  // that ratio every time, so the search runs at eta_ext = 1 and the answer is a
+  // genuine property of the load: the shaft speed this slide wants to turn at.
+  //
+  // The recommendation is then priced with the real external-stage loss, so the
+  // verdict on whether to build it stays honest.
+  function idealAnswer(payload, p, motors) {
+    var search = gearedAnswer(payload, withParam(p, 'eta_ext', 1), motors);
+    var b = search.best;
+    if (!b) return null;
+
+    // Re-optimise the pulley at the ideal ratio, now paying the real eta_ext.
+    var pReal = withParam(p, 'G_ext', b.G_ext);
+    var ds = diameters(p);
+    var realT = Infinity, realD = null, realRes = null;
+    for (var i = 0; i < ds.length; i++) {
+      var r = solve(b.motor, ds[i], payload, b.rigging, pReal);
+      if (r && r.t < realT) { realT = r.t; realD = ds[i]; realRes = r; }
     }
 
-    if (!best) return { best: null, curves: curves, grid: grid };
-
-    // +/-5% windows on BOTH axes, taken along the winning rigging.
-    var ceiling = 1.05 * best.t;
-    var gLo = null, gHi = null, dLo = null, dHi = null;
-
-    for (var a = 0; a < grid.length; a++) {
-      var pa = withParam(p, 'G_ext', grid[a]);
-      var mn = Infinity;
-      for (var b = 0; b < ds.length; b++) {
-        var r1 = solve(best.motor, ds[b], payload, best.rigging, pa);
-        if (r1 && r1.t < mn) mn = r1.t;
-      }
-      if (mn <= ceiling) { if (gLo === null) gLo = grid[a]; gHi = grid[a]; }
-    }
-    for (var c1 = 0; c1 < ds.length; c1++) {
-      var mn2 = Infinity;
-      for (var d1 = 0; d1 < grid.length; d1++) {
-        var r2 = solve(best.motor, ds[c1], payload, best.rigging,
-                       withParam(p, 'G_ext', grid[d1]));
-        if (r2 && r2.t < mn2) mn2 = r2.t;
-      }
-      if (mn2 <= ceiling) { if (dLo === null) dLo = ds[c1]; dHi = ds[c1]; }
-    }
-
-    var eta_ext = best.G_ext === 1 ? 1 : p.eta_ext;
     return {
-      best: best,
-      curves: curves,
-      grid: grid,
-      gWindow: [gLo, gHi],
-      dWindow: [dLo, dHi],
-      rpm_equiv: best.motor.rpm_free / best.G_ext,
-      T_stall_equiv: best.motor.T_stall * best.G_ext * eta_ext,
-      teeth: nearestToothPair(best.G_ext)
+      rpm: b.motor.rpm_free / b.G_ext,     // the headline
+      G_ext: b.G_ext,
+      motor: b.motor,
+      rigging: b.rigging,
+      d_ideal: b.d,
+      t_ideal: b.t,                        // frictionless external stage
+      d: realD,                            // what you would actually cut
+      t: isFinite(realT) ? realT : null,   // what you would actually get
+      res: realRes,
+      teeth: b.G_ext === 1 ? null : nearestToothPair(b.G_ext)
     };
   }
 
-  // Both answers together, plus the comparison the UI reports.
+  // Both answers plus the comparison the UI reports.
   function fullAnswer(payload, p, motors) {
     var stock = stockAnswer(payload, p, motors);
-    var geared = gearedAnswer(payload, p, motors);
-    var gain = (stock.t && geared.best)
-      ? 100 * (stock.t - geared.best.t) / stock.t : null;
+    var ideal = idealAnswer(payload, p, motors);
+
+    // How far the stock direct-drive RPM sits from the ideal shaft speed.
+    var rpmGap = (stock.best && ideal)
+      ? 100 * (stock.best.motor.rpm_free - ideal.rpm) / ideal.rpm : null;
+
+    // Net gain from actually building the external stage, losses included.
+    var gain = (stock.t && ideal && ideal.t)
+      ? 100 * (stock.t - ideal.t) / stock.t : null;
+
     return {
       stock: stock,
-      geared: geared,
+      ideal: ideal,
+      rpmGap: rpmGap,
       gain: gain,
       gearingHelps: gain !== null && gain >= 2
     };
@@ -496,6 +491,7 @@
     gearGrid: gearGrid,
     nearestToothPair: nearestToothPair,
     gearedAnswer: gearedAnswer,
+    idealAnswer: idealAnswer,
     fullAnswer: fullAnswer,
     stallDiameter: stallDiameter,
     holdCheck: holdCheck

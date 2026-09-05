@@ -95,17 +95,6 @@
     </div>
   </section>
 
-  <section class="card chart-card wide-chart">
-    <h2 class="card-title">Best time vs equivalent output RPM <span class="tag" id="rpm-tag"></span></h2>
-    <div class="chart-box tall"><canvas id="chart-rpm"></canvas></div>
-    <p class="hint">Each base motor geared through every external ratio from
-      <span id="rpm-range"></span>. Equivalent output RPM = free RPM &divide; G_ext; each point is
-      the best pulley at that ratio, on the chosen rigging. This is where the ideal RPM sits, and
-      how flat the bottom is. Values above 1.6&times; the best are hidden, as in the two charts
-      above. The step in each line at its own free RPM is real: that is the point where G_ext = 1
-      and the external stage &mdash; and its eta_ext loss &mdash; disappears entirely.</p>
-  </section>
-
   <p id="chartwarn" class="warn" hidden>
     Charts need Chart.js from the CDN, which did not load. The numbers above are unaffected.
   </p>

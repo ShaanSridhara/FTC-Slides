@@ -1,9 +1,9 @@
 # FTC Vertical Linear Slide Calculator
 
 A static web calculator for a 3-stage FTC vertical linear slide. Give it total travel, payload,
-and an optional tip-speed cap; it picks the rigging for you and returns two answers — the best
-stock goBILDA motor on direct drive, and the best achievable with external gearing — plus the
-pulley tolerance windows and five charts.
+and an optional tip-speed cap; it picks the rigging for you and returns two answers — the stock
+goBILDA motor to build, and the ideal shaft speed for the load — plus the pulley tolerance window
+and four charts.
 
 **Live:** https://shaansridhara.github.io/FTC-Slides/
 
@@ -34,22 +34,29 @@ table follows the winner, with a toggle for the loser; the charts always show bo
 
 ### Two answers
 
-**Answer 1 — Stock** is direct drive (`G_ext = 1`): six motors × 33 pulley diameters × both
-riggings, argmin time.
+**Answer 1 — Stock** is what you build: direct drive (`G_ext = 1`), six motors x 33 pulley
+diameters x both riggings, argmin time.
 
-**Answer 2 — Geared** adds an external ratio, because every Yellow Jacket shares the same RS-555
-core and the gearbox only sets the ratio — so the real question is what *total* output ratio, and
-therefore what equivalent output RPM, minimises the time. It searches base motor × `G_ext`
-(0.4–6.0 in 0.05 steps, below 1 being overdrive) × pulley diameter × rigging, and reports the
-equivalent output RPM as the headline, along with the nearest stock goBILDA tooth pair. An
-external stage costs `eta_ext` (default 0.95), applied only when `G_ext ≠ 1`. Ties resolve toward
-no external stage, then toward a pulley near 40 mm.
+**Answer 2 — Ideal** is the shaft speed the load actually wants. Every Yellow Jacket shares the
+same RS-555 core — `rpm x ratio ≈ 5980` for all six — so the gearbox only sets a ratio, and the
+real question is what *total* output ratio minimises the time. Gear all six motors to the same
+equivalent output RPM and their curves collapse to within a few percent, which is what makes
+"ideal RPM" a single well-defined number rather than a per-motor quirk. The residual spread tracks
+`T_stall / ratio` (0.124–0.149 across the lineup), and that is why the 1150 is almost always the
+best base motor.
 
-With the defaults, gearing does **not** help: the pulley sweep already supplies the ratio, so
-`G_ext = 1` wins outright and the tool says so plainly. Overdrive at `G_ext = 0.8` is genuinely
-1.5% faster in the raw physics, but the 5% cost of the external stage more than eats it. Gearing
-only pays when the pulley optimum is pinned at a build limit — force that (say a 60 mm minimum
-pulley at 2 kg) and Answer 2 finds a 4.8% gain at a real reduction.
+The ideal search runs at `eta_ext = 1`, and this matters. `eta_ext` is a *step* cost: it is
+charged at every ratio except exactly 1.0. Asking "which ratio is best" while one ratio alone
+holds a 5% discount just returns that ratio every time — the reported ideal RPM would be pinned
+to the stock RPM of whichever motor won, constant no matter what you typed. Searching on a level
+playing field makes it a genuine property of the load: **1353 RPM at 0 kg, 719 at 0.6 kg, 192 at
+2 kg**, and it moves with travel too.
+
+The recommendation is then *priced* with the real external-stage loss, so the verdict stays
+honest. With the defaults the ideal is 719 RPM, the 1150 sits 60% above it — but the better ratio
+is worth only 0.9%, and an external stage costs 5%, so building it comes out **2.3% slower**. The
+tool says so and tells you to build Answer 1. Gearing only earns its keep when the pulley optimum
+is pinned at a build limit; force that (a 60 mm minimum pulley at 2 kg) and it finds a real gain.
 
 Full model, constants, and reference data: [SPEC.md](SPEC.md) and
 [SPEC_ADDENDUM_2.md](SPEC_ADDENDUM_2.md).
@@ -65,10 +72,12 @@ without a network connection the numbers still work and the charts are skipped.
 node tests/physics.test.js
 ```
 
-323 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
+354 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
 checks, the stall diameters, the tip-speed-cap cases, the two external validation points
 (the goBILDA Viper-Slide kit and FTC team The Clueless), the section 8 modelling guards, and the
-addendum's rigging pick and gearing optimizer. The same suite gates deployment in CI.
+addendum's rigging pick and gearing optimizer. It also cross-checks that the answer block, the
+result table and the chart series all agree, and that every reported +/-5% window really does
+bracket its own optimum. The same suite gates deployment in CI.
 
 The sharpest of these is an identity test: a motor geared by `k` must be indistinguishable from a
 motor with `ratio × k`, `free speed / k`, `stall torque × k` and `rotor inertia × k²` run direct.

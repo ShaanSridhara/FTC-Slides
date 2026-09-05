@@ -360,55 +360,127 @@ section('Addendum B: geared optimizer');
   eq('same pulley', geared.best.d, stock.best.best_d);
   eq('same rigging', geared.best.rigging, stock.rigging);
 
-  // Gearing can never be worse than direct drive, because G_ext = 1 is in the grid.
+  // Gearing can never be worse than direct drive: G_ext = 1 is in the grid, and
+  // the ideal search runs without the external-stage penalty.
   Motors.PAYLOAD_SWEEP.forEach(function (P) {
     var a = Physics.fullAnswer(P, P0, MOTORS);
-    check('geared <= stock @ ' + P.toFixed(1) + ' kg overall',
-      a.geared.best.t <= a.stock.t + 1e-12,
-      'geared ' + a.geared.best.t.toFixed(6) + ' vs stock ' + a.stock.t.toFixed(6));
+    check('ideal <= stock @ ' + P.toFixed(1) + ' kg',
+      a.ideal.t_ideal <= a.stock.t + 1e-12,
+      'ideal ' + a.ideal.t_ideal.toFixed(6) + ' vs stock ' + a.stock.t.toFixed(6));
+  });
 
-    // and per motor, covering every reference-table cell
-    a.geared.curves.forEach(function (c) {
-      var gearedBest = Infinity;
-      c.points.forEach(function (pt) { if (pt.t < gearedBest) gearedBest = pt.t; });
-      var direct = Infinity;
-      ['cascade', 'continuous'].forEach(function (rig) {
-        var s = Physics.sweepMotor(c.motor, P, rig, Physics.withParam(P0, 'G_ext', 1));
-        if (!s.stalled && s.best_t < direct) direct = s.best_t;
-      });
-      if (isFinite(direct)) {
-        check('geared <= direct, ' + c.motor.name + ' @ ' + P.toFixed(1) + ' kg',
-          gearedBest <= direct + 1e-12,
-          gearedBest.toFixed(6) + ' vs ' + direct.toFixed(6));
-      }
+  // The buildable optimum, paying the real eta_ext, still prefers no external stage.
+  var real = Physics.gearedAnswer(0.6, Physics.withParam(P0, 'eta_ext', 0.95), MOTORS);
+  eq('with the stage loss charged, direct drive wins', real.best.G_ext, 1);
+})();
+
+// This is the bug that shipped: eta_ext is charged at every ratio EXCEPT exactly
+// 1.0, so searching for the best ratio while one ratio holds a 5% discount pinned
+// the answer to that ratio forever. The reported "ideal RPM" was then just the
+// stock RPM of whichever motor won - a constant, whatever the user typed.
+section('Ideal output RPM is a real, input-dependent quantity');
+(function () {
+  function idealRpm(over, P) {
+    var p = params(over || {});
+    return Physics.fullAnswer(P, p, Physics.deriveMotors(Motors.MOTORS, p)).ideal.rpm;
+  }
+
+  var byPayload = [0, 0.6, 2.0].map(function (P) { return idealRpm({}, P); });
+  check('ideal RPM falls as payload rises',
+    byPayload[0] > byPayload[1] && byPayload[1] > byPayload[2],
+    byPayload.map(Math.round).join(' -> '));
+
+  var short = idealRpm({ travel: 300 }, 0.6);
+  var long = idealRpm({ travel: 1200 }, 0.6);
+  check('ideal RPM responds to travel', Math.abs(short - long) > 1,
+    short.toFixed(0) + ' vs ' + long.toFixed(0));
+
+  // The regression itself: it must not simply echo a stock motor RPM every time.
+  var stockRpms = Motors.MOTORS.map(function (m) { return m.rpm_free; });
+  var pinned = 0;
+  [0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.5, 2.0].forEach(function (P) {
+    if (stockRpms.indexOf(Math.round(idealRpm({}, P))) !== -1) pinned++;
+  });
+  check('ideal RPM is not pinned to the stock RPMs', pinned <= 2,
+    pinned + ' of 8 payloads landed exactly on a catalogue RPM');
+
+  // Same core: all six motors geared to one output RPM should land close together.
+  var p = params({ eta_ext: 1.0 });
+  var ms = Physics.deriveMotors(Motors.MOTORS, p);
+  var ds = Physics.diameters(p);
+  var times = [];
+  ms.forEach(function (m) {
+    var g = m.rpm_free / 700;
+    if (g < p.g_min || g > p.g_max) return;
+    var best = Infinity;
+    ds.forEach(function (d) {
+      var r = Physics.solve(m, d, 0.6, 'continuous', Physics.withParam(p, 'G_ext', g));
+      if (r && r.t < best) best = r.t;
+    });
+    if (isFinite(best)) times.push(best);
+  });
+  var spread = 100 * (Math.max.apply(null, times) - Math.min.apply(null, times)) /
+               Math.min.apply(null, times);
+  check('motors geared to the same output RPM agree within 15%', spread < 15,
+    'spread ' + spread.toFixed(1) + '%');
+
+  // Reaching the ideal ratio is priced with the real stage loss, so the verdict
+  // can legitimately come out negative.
+  var a = Physics.fullAnswer(0.6, P0, MOTORS);
+  check('ideal time (no stage loss) beats stock', a.ideal.t_ideal < a.stock.t);
+  check('but pricing the stage in makes it worse here', a.ideal.t > a.stock.t);
+  check('so the tool does not recommend it', a.gearingHelps === false);
+  check('and the RPM gap is reported', a.rpmGap > 0);
+})();
+
+section('Cross-checks: the answer, the table and the charts agree');
+(function () {
+  [0, 0.6, 1.0].forEach(function (P) {
+    var a = Physics.fullAnswer(P, P0, MOTORS);
+    var win = a.stock.byRigging[a.stock.rigging];
+    var tag = '@ ' + P.toFixed(1) + ' kg';
+
+    // Answer block == rank 1 of the table it displays.
+    eq('answer motor is table rank 1 ' + tag, a.stock.best.motor.name, win.ranked[0].motor.name);
+    near('answer time is table rank 1 ' + tag, a.stock.t, win.ranked[0].best_t, 1e-12);
+    near('answer pulley is table rank 1 ' + tag, a.stock.best.best_d, win.ranked[0].best_d, 1e-12);
+
+    // The table is genuinely sorted.
+    for (var i = 1; i < win.ranked.length; i++) {
+      check('table sorted ' + tag + ' row ' + i, win.ranked[i].best_t >= win.ranked[i - 1].best_t);
+    }
+
+    // Charts 3/4 sweep the same diameters the table optimises over.
+    Physics.RIGGINGS.forEach(function (rig) {
+      var row = a.stock.byRigging[rig].rows.filter(function (r) { return !r.stalled; })[0];
+      if (!row) return;
+      var lo = Infinity, at = null;
+      row.times.forEach(function (t, i) { if (t !== null && t < lo) { lo = t; at = row.diameters[i]; } });
+      near('chart min == table best, ' + rig + ' ' + row.motor.name + ' ' + tag, lo, row.best_t, 1e-12);
+      near('chart argmin == table pulley, ' + rig + ' ' + row.motor.name + ' ' + tag,
+        at, row.best_d, 1e-12);
+    });
+
+    // The +/-5% window must actually bracket the optimum.
+    win.ranked.forEach(function (r) {
+      check('window brackets the optimum, ' + r.motor.name + ' ' + tag,
+        r.window[0] <= r.best_d && r.best_d <= r.window[1]);
+      check('every diameter in the window is within 5%, ' + r.motor.name + ' ' + tag,
+        r.times.every(function (t, i) {
+          var d = r.diameters[i];
+          if (d < r.window[0] || d > r.window[1]) return true;
+          return t !== null && t <= 1.05 * r.best_t + 1e-12;
+        }));
     });
   });
 
-  // Ties resolve toward no external stage.
-  var a = Physics.fullAnswer(0.6, P0, MOTORS);
-  near('defaults: gearing gains nothing', a.gain, 0, 1e-9);
-  eq('defaults: tie-break picks direct drive', a.geared.best.G_ext, 1);
-  check('defaults: reported as not worth it', a.gearingHelps === false);
-  near('equivalent output RPM at G_ext = 1 is the motor rpm', a.geared.rpm_equiv, 1150, 1e-9);
-
-  // With the pulley range restricted, gearing must actually earn its keep.
-  var pr = params({ d_min: 60 });
-  var mr = Physics.deriveMotors(Motors.MOTORS, pr);
-  var tight = Physics.fullAnswer(2.0, pr, mr);
-  check('a 60 mm pulley floor makes gearing pay', tight.gain > 2 && tight.gearingHelps,
-    'gain ' + tight.gain.toFixed(2) + '%');
-  check('and it picks a real reduction', tight.geared.best.G_ext !== 1);
-
-  // chart 5 data
-  eq('one curve per motor', a.geared.curves.length, 6);
-  a.geared.curves.forEach(function (c) {
-    check(c.motor.name + ' curve is ascending in RPM', c.points.every(function (pt, i) {
-      return i === 0 || pt.rpm >= c.points[i - 1].rpm;
-    }));
-    check(c.motor.name + ' curve has points', c.points.length > 0);
+  // Chart 1/2 payload series must match a direct solve at that payload.
+  var m = motor('1150');
+  Motors.PAYLOAD_SWEEP.forEach(function (P) {
+    var viaSweep = Physics.sweepMotor(m, P, 'continuous', Physics.withParam(P0, 'G_ext', 1));
+    var direct = Physics.solve(m, viaSweep.best_d, P, 'continuous', Physics.withParam(P0, 'G_ext', 1));
+    near('payload-curve point == direct solve @ ' + P.toFixed(1) + ' kg', viaSweep.best_t, direct.t, 1e-12);
   });
-  check('windows reported on both axes',
-    a.geared.gWindow[0] !== null && a.geared.dWindow[0] !== null);
 })();
 
 // ----------------------------------------------------------------

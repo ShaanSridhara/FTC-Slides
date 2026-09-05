@@ -26,9 +26,8 @@
       ['V_batt', 'V open ckt', 0.1], ['I_other', 'A other', 0.5], ['R_series', 'ohm', 0.005],
       ['I_port', 'A port limit', 1], ['I_stall', 'A stall', 0.1], ['I_free', 'A free', 0.05]
     ]],
-    ['Build limits and gearing search', [
-      ['d_min', 'mm smallest', 1], ['d_max', 'mm largest', 1],
-      ['g_min', 'min G_ext', 0.05], ['g_max', 'max G_ext', 0.05], ['g_step', 'G_ext step', 0.01]
+    ['Build limits', [
+      ['d_min', 'mm smallest', 1], ['d_max', 'mm largest', 1]
     ]]
   ];
 
@@ -45,10 +44,6 @@
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c];
   }); }
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
-  function ratioText(g) {
-    if (g === 1) return 'direct drive';
-    return f(g, 2) + ':1 ' + (g < 1 ? 'overdrive' : 'reduction');
-  }
 
   // --------------------------------------------------------------- inputs
 
@@ -132,48 +127,50 @@
         '<div class="headline">In <strong class="big">' + f(b.best_t, 3) + '</strong> s</div>' +
       '</div>' +
       '<div class="stats">' +
-        stat('Rigging', cap(stock.rigging), '') +
-        stat('&plusmn;5% pulley window', f(b.window[0], 0) + '&ndash;' + f(b.window[1], 0), 'mm') +
+        stat('Pulley window', f(b.window[0], 0) + '&ndash;' + f(b.window[1], 0), 'mm') +
         stat('Torque used', f(100 * r.u, 1), '% of stall') +
-        stat('Current', f(r.I, 2), 'A') +
       '</div>' + flagsFor(b, r, p) + '</div>';
   }
 
-  // Answer 2 - best base motor plus external gearing.
-  function gearedCard(full, p) {
-    var g = full.geared, b = g.best, r = b.res;
-    var teeth = b.G_ext === 1
-      ? 'No external stage &mdash; the pulley alone sets the ratio.'
-      : '&asymp; ' + g.teeth.driven + 'T:' + g.teeth.driver + 'T = ' +
-        f(g.teeth.ratio, 2) + ':1' +
-        (g.teeth.err > 0.02 ? ' (nearest stock pair, ' + f(g.teeth.err, 2) + ' off)' : '');
+  // Answer 2 - the shaft speed this load actually wants, and whether it is
+  // worth building an external stage to reach it.
+  function idealCard(full, p) {
+    var id = full.ideal;
+    var gap = full.rpmGap;
+    var stockRpm = full.stock.best.motor.rpm_free;
 
-    var verdict = full.gearingHelps
-      ? '<div class="flag good">External gearing is worth it here: <b>' + f(full.gain, 1) +
-        '% faster</b> than Answer 1.</div>'
-      : '<div class="flag">External gearing does not help here; build Answer 1.' +
-        (full.gain > 0.005 ? ' It would gain only ' + f(full.gain, 2) + '%.' : '') + '</div>';
+    var reach = id.G_ext === 1
+      ? 'The ' + esc(id.motor.name) + ' already turns at the ideal speed &mdash; no gearing needed.'
+      : 'To reach it: a <b>' + esc(id.motor.name) + '</b> geared <b>' + f(id.G_ext, 2) + ':1</b>' +
+        (id.teeth ? ' (&asymp; ' + id.teeth.driven + 'T:' + id.teeth.driver + 'T)' : '') + '.';
+
+    var verdict;
+    if (full.gearingHelps) {
+      verdict = '<div class="flag good">Worth building: <b>' + f(full.gain, 1) +
+        '% faster</b> than Answer 1, after the external stage loss.</div>';
+    } else if (full.gain !== null && full.gain > 0) {
+      verdict = '<div class="flag">Only <b>' + f(full.gain, 1) + '%</b> faster once the ' +
+        'external stage loss is paid &mdash; not worth the extra parts. Build Answer 1.</div>';
+    } else {
+      verdict = '<div class="flag">The extra stage costs more than the better ratio gains ' +
+        '(<b>' + f(Math.abs(full.gain), 1) + '% slower</b> in practice). Build Answer 1.</div>';
+    }
 
     return '<div class="ans">' +
-      '<div class="ans-head"><h3>Answer 2 &mdash; Geared</h3>' +
-        '<p class="ans-sub">Best base motor plus external gearing</p></div>' +
+      '<div class="ans-head"><h3>Answer 2 &mdash; Ideal</h3>' +
+        '<p class="ans-sub">The shaft speed this load wants</p></div>' +
       '<div class="answer-head">' +
-        '<div class="headline">Ideal output <strong class="big">' + f(g.rpm_equiv, 0) +
+        '<div class="headline">Ideal output <strong class="big">' + f(id.rpm, 0) +
           '</strong> RPM</div>' +
-        '<div class="headline">Pulley <strong class="big">' + f(b.d, 0) + '</strong> mm</div>' +
-        '<div class="headline">In <strong class="big">' + f(b.t, 3) + '</strong> s</div>' +
+        '<div class="headline">Best case <strong class="big">' + f(id.t_ideal, 3) +
+          '</strong> s</div>' +
       '</div>' +
       '<div class="stats">' +
-        stat('Base motor', esc(b.motor.name) + ' <small>RPM</small>', f(b.motor.ratio, 1) + ':1') +
-        stat('External ratio', ratioText(b.G_ext), '') +
-        stat('Rigging', cap(b.rigging), '') +
-        stat('Stall torque at pulley', f(g.T_stall_equiv, 3), 'N&middot;m') +
-        stat('G_ext window', f(g.gWindow[0], 2) + '&ndash;' + f(g.gWindow[1], 2), '') +
-        stat('Pulley window', f(g.dWindow[0], 0) + '&ndash;' + f(g.dWindow[1], 0), 'mm') +
-        stat('Torque used', f(100 * r.u, 1), '% of stall') +
-        stat('Current', f(r.I, 2), 'A') +
+        stat('Your ' + esc(String(stockRpm)) + ' RPM motor is',
+             (gap >= 0 ? '+' : '') + f(gap, 0) + '%', 'off ideal') +
+        stat('Ideal pulley', f(id.d_ideal, 0), 'mm') +
       '</div>' +
-      '<p class="teeth">' + teeth + '</p>' + verdict + '</div>';
+      '<p class="teeth">' + reach + '</p>' + verdict + '</div>';
   }
 
   // Guards worth surfacing (spec section 8), for the stock answer.
@@ -186,7 +183,9 @@
     if (b.window[0] === b.window[1]) flags.push('The &plusmn;5% window is a <b>single diameter</b>; ' +
       'this sits on a cliff, so a small build error costs real time.');
     if (r.I > p.I_port) flags.push('Draws <b>' + f(r.I, 2) + ' A</b>, over the ' + f(p.I_port, 0) +
-      ' A Control Hub port limit.');
+      ' A Control Hub port limit. Expect the port to trip.');
+    if (r.u > 0.7) flags.push('Running at <b>' + f(100 * r.u, 0) + '% of stall torque</b> &mdash; ' +
+      'hot, and close to the cliff. A smaller pulley buys margin.');
     return flags.map(function (m) { return '<div class="flag">' + m + '</div>'; }).join('');
   }
 
@@ -204,13 +203,13 @@
 
     $('rigging-line').innerHTML = riggingLine(stock);
     $('answer-body').innerHTML = stockCard(stock, p) +
-      (full.geared.best ? gearedCard(full, p) : '');
+      (full.ideal ? idealCard(full, p) : '');
 
     $('derived').innerHTML = [
-      'm1 = ' + f(p.m1, 3), 'm2 = ' + f(p.m2, 3), 'm3 = ' + f(p.m3, 3),
-      'd_tot = ' + f(p.d_tot, 2) + ' N', 'eta_c = ' + f(p.eta_c, 4),
-      'eta_k = ' + f(p.eta_k, 4), 'V_oc = ' + f(p.V_oc, 3) + ' V',
-      'G_ext grid = ' + Physics.gearGrid(p).length + ' values'
+      'm1 = ' + f(p.m1, 3) + ' kg', 'm2 = ' + f(p.m2, 3) + ' kg', 'm3 = ' + f(p.m3, 3) + ' kg',
+      'total drag = ' + f(p.d_tot, 2) + ' N',
+      'cascade eff = ' + f(100 * p.eta_c, 1) + '%',
+      'continuous eff = ' + f(100 * p.eta_k, 1) + '%'
     ].map(function (s) { return '<span>' + s + '</span>'; }).join('');
   }
 
@@ -345,38 +344,6 @@
     draw(id, ds, 'Pulley diameter (mm)', 'Extension time (s)');
   }
 
-  // Chart 5: best time vs equivalent output RPM, winning rigging, one line per base motor.
-  // Each point is the best pulley for that base motor at that external ratio.
-  function rpmChart(full, p) {
-    var g = full.geared;
-    var rig = full.stock.rigging || 'cascade';
-
-    // Same 1.6x zoom rule as charts 3 and 4: the slow motors run to ~8 s when badly
-    // geared, which would flatten the bowl this chart exists to show.
-    var min = Infinity;
-    g.curves.forEach(function (c) {
-      c.points.forEach(function (pt) {
-        var t = pt.byRig[rig];
-        if (t !== null && t < min) min = t;
-      });
-    });
-    var ceiling = isFinite(min) ? CLIP * min : Infinity;
-
-    var ds = g.curves.map(function (c, i) {
-      var pts = [];
-      c.points.forEach(function (pt) {
-        var t = pt.byRig[rig];
-        if (t !== null && t <= ceiling) pts.push({ x: pt.rpm, y: t });
-      });
-      return { label: c.motor.name, data: pts, borderColor: COLORS[i], backgroundColor: COLORS[i] };
-    });
-
-    $('rpm-tag').textContent = rig.toUpperCase() + ' · ' + f(p.payload, 1) + ' kg';
-    $('rpm-range').textContent = f(p.g_min, 2) + ':1 to ' + f(p.g_max, 2) + ':1';
-    draw('chart-rpm', ds, 'Equivalent output RPM (free RPM / G_ext)',
-         'Best extension time (s)', 'logarithmic', 30, 4000);
-  }
-
   // ---------------------------------------------------------------- render
 
   function render() {
@@ -395,7 +362,6 @@
     loadChart('chart-load-continuous', 'continuous', p, motors);
     diaChart('chart-dia-cascade', 'cascade', p, motors);
     diaChart('chart-dia-continuous', 'continuous', p, motors);
-    rpmChart(full, p);
   }
 
   // ------------------------------------------------------------------ init
