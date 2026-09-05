@@ -31,9 +31,6 @@
     f_inner: 0.5,         // fraction of slide mass in the moving inner rail
     m_hw: 0.030,          // kg extra hardware per moving stage
     m_c: 0.050,           // kg carriage / plate
-    d1: 1.0,              // N sliding drag, interface 1 (base-s1)
-    d2: 0.8,              // N sliding drag, interface 2
-    d3: 0.6,              // N sliding drag, interface 3
     F_spring: 0,          // N assist at cable, negative fights extension
     g: 9.80665,           // m/s^2
 
@@ -41,8 +38,6 @@
     n_motors: 1,
     G_ext: 1,             // external ratio after motor
     d_string: 0.6,        // mm, 150 lb braided Spectra
-    n_idler_c: 5,         // idlers in cascade force path
-    n_idler_k: 6,         // idlers in continuous force path
     eta_idler: 0.97,
     eta_spool: 0.95,      // spool bearing + ext gear
     J_sp: 5e-5,           // kg-m^2 pulley + hub inertia
@@ -67,7 +62,23 @@
     d_max: 80             // mm
   };
 
+  // Per-interface sliding drag, falling toward the top of the stack but never
+  // below 0.4 N. i is 1-based: interface 1 is base-to-stage-1.
+  function defaultDrag(i) { return Math.max(0.4, 1.0 - 0.2 * (i - 1)); }
+
+  // Idlers in each force path scale with the number of stages.
+  function defaultIdlers(N) { return { c: N + 2, k: N + 3 }; }
+
+  // Fill in the N-dependent defaults so they cannot drift from the formulas above.
+  // At N = 3 this reproduces d1/d2/d3 = 1.0/0.8/0.6 and 5/6 idlers exactly.
+  for (var i = 1; i <= DEFAULTS.N; i++) DEFAULTS['d' + i] = defaultDrag(i);
+  DEFAULTS.n_idler_c = defaultIdlers(DEFAULTS.N).c;
+  DEFAULTS.n_idler_k = defaultIdlers(DEFAULTS.N).k;
+
   var PAYLOAD_SWEEP = [0, 0.2, 0.4, 0.6, 0.8, 1.0];
 
-  return { MOTORS: MOTORS, DEFAULTS: DEFAULTS, PAYLOAD_SWEEP: PAYLOAD_SWEEP };
+  return {
+    MOTORS: MOTORS, DEFAULTS: DEFAULTS, PAYLOAD_SWEEP: PAYLOAD_SWEEP,
+    defaultDrag: defaultDrag, defaultIdlers: defaultIdlers
+  };
 });

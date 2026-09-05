@@ -16,16 +16,36 @@
 
   // ---------------------------------------------------------------- section 2
 
-  // Fill in the values section 2 derives from the others.
+  // Fill in the values section 2 derives from the others. Works for any N.
   function deriveParams(raw) {
-    var p = {};
+    var p = {}, i;
     for (var k in raw) if (Object.prototype.hasOwnProperty.call(raw, k)) p[k] = raw[k];
 
-    // 3-stage stack: inner rail 1 + outer rail 2 + hw; stage 3 is inner rail only.
-    p.m1 = p.m_slide + p.m_hw;
-    p.m2 = p.m_slide + p.m_hw;
-    p.m3 = p.m_slide * p.f_inner + p.m_hw;
-    p.d_tot = p.d1 + p.d2 + p.d3;
+    p.N = Math.max(1, Math.round(p.N));
+
+    // Every stage below the top is an inner rail plus the outer rail of the stage
+    // above, so it carries a full slide; the top stage is inner rail only.
+    p.masses = [];
+    for (i = 1; i <= p.N; i++) {
+      var mi = (i < p.N) ? p.m_slide + p.m_hw : p.m_slide * p.f_inner + p.m_hw;
+      p.masses.push(mi);
+      p['m' + i] = mi;                              // m1..mN, also handy for callers
+    }
+
+    // Drag per interface. An explicit d_i wins; otherwise fall back to the default
+    // ramp, so raising N does not leave the new interfaces undefined.
+    p.drags = [];
+    p.d_tot = 0;
+    for (i = 1; i <= p.N; i++) {
+      var di = p['d' + i];
+      if (!isFinite(di)) di = Motors.defaultDrag(i);
+      p.drags.push(di);
+      p['d' + i] = di;
+      p.d_tot += di;
+    }
+
+    if (!isFinite(p.n_idler_c)) p.n_idler_c = Motors.defaultIdlers(p.N).c;
+    if (!isFinite(p.n_idler_k)) p.n_idler_k = Motors.defaultIdlers(p.N).k;
 
     p.eta_c = Math.pow(p.eta_idler, p.n_idler_c) * p.eta_spool;
     p.eta_k = Math.pow(p.eta_idler, p.n_idler_k) * p.eta_spool;
@@ -67,27 +87,44 @@
     return p.G_ext === 1 ? base : base * p.eta_ext;
   }
 
-  // Cascade: all stages move together at ratios 1:2:3, all drags act at once.
+  // Cascade: all N stages move together at ratios 1:2:..:N, every drag at once.
+  // Stage i moves i times the cable, so it contributes i*m_i to the force and
+  // i^2*m_i to the inertia seen at the drum. The top stage carries m_c + payload.
   function cascadeForce(p, payload) {
-    var m_tip = p.m3 + p.m_c + payload;
+    var sumF = 0, m_eff = 0, m_tip = 0;
+    for (var i = 1; i <= p.N; i++) {
+      var mi = p.masses[i - 1] + (i === p.N ? p.m_c + payload : 0);
+      if (i === p.N) m_tip = mi;
+      sumF += i * mi;
+      m_eff += i * i * mi;
+    }
     return {
       m_tip: m_tip,
-      F: p.g * (p.m1 + 2 * p.m2 + 3 * m_tip) + p.d_tot - p.F_spring,
-      // effective translating mass seen at the drum, ratios squared
-      m_eff: p.m1 + 4 * p.m2 + 9 * m_tip
+      F_grav: p.g * sumF,
+      F: p.g * sumF + p.d_tot - p.F_spring,
+      m_eff: m_eff
     };
   }
 
-  // Continuous: one string, uniform tension, stages move sequentially top first.
+  // Continuous: one string, uniform tension, so the least-loaded stage moves first.
+  // Phase k moves stages N-k+1 .. N against interface N-k+1, and the moving mass
+  // accumulates downward as each phase adds the stage beneath the last.
+  function phaseName(k) {
+    return k <= 26 ? String.fromCharCode(64 + k) : String(k);
+  }
   function continuousPhases(p, payload) {
-    var MA = p.m3 + p.m_c + payload;
-    var MB = p.m2 + p.m3 + p.m_c + payload;
-    var MC = p.m1 + p.m2 + p.m3 + p.m_c + payload;
-    return [
-      { name: 'A', M: MA, F: p.g * MA + p.d3 - p.F_spring },
-      { name: 'B', M: MB, F: p.g * MB + p.d2 - p.F_spring },
-      { name: 'C', M: MC, F: p.g * MC + p.d1 - p.F_spring }
-    ];
+    var out = [], M = 0;
+    for (var k = 1; k <= p.N; k++) {
+      var stage = p.N - k + 1;                       // the stage that joins this phase
+      M += p.masses[stage - 1] + (stage === p.N ? p.m_c + payload : 0);
+      out.push({
+        name: phaseName(k),
+        stage: stage,
+        M: M,
+        F: p.g * M + p.drags[stage - 1] - p.F_spring
+      });
+    }
+    return out;
   }
 
   // ---------------------------------------------------------------- section 4.2
@@ -184,7 +221,7 @@
       var last = out[out.length - 1];
       return {
         t: t_total, d: d_mm, r: r, phases: out,
-        F_peak: phases[2].F,                          // phase C carries the whole stack
+        F_peak: phases[phases.length - 1].F,          // the last phase carries the whole stack
         op: last.op,                                  // worst-case operating point
         u: last.op.u, I: last.op.I, tau: last.op.tau,
         takeup: E,                                    // continuous: total travel
@@ -435,8 +472,9 @@
   // d_stall = 2000*eta*T_s*G/F - d_string
   function stallDiameter(motor, payload, rigging, p) {
     var eta = effEta(p, rigging === 'continuous' ? p.eta_k : p.eta_c);
+    var phases = continuousPhases(p, payload);
     var F = rigging === 'continuous'
-      ? continuousPhases(p, payload)[2].F              // phase C is the binding one
+      ? phases[phases.length - 1].F                    // the last phase is the binding one
       : cascadeForce(p, payload).F;
     var V = p.V_oc, d = p.d_min;
     for (var i = 0; i < 60; i++) {
@@ -454,9 +492,10 @@
 
   // Section 6, holding at full extension with the motor stalled.
   function holdCheck(motor, payload, rigging, d_mm, p) {
+    var phases = continuousPhases(p, payload);
     var F_grav = rigging === 'continuous'
-      ? p.g * continuousPhases(p, payload)[2].M
-      : p.g * (p.m1 + 2 * p.m2 + 3 * (p.m3 + p.m_c + payload));
+      ? p.g * phases[phases.length - 1].M
+      : cascadeForce(p, payload).F_grav;
     var eta = effEta(p, rigging === 'continuous' ? p.eta_k : p.eta_c);
     var tau_hold = F_grav * radius(d_mm, p) / (p.G_ext * eta);
     var I_hold = p.n_motors * p.I_free + tau_hold / motor.kt;
@@ -476,6 +515,7 @@
     radius: radius,
     cascadeForce: cascadeForce,
     continuousPhases: continuousPhases,
+    phaseName: phaseName,
     operatingPoint: operatingPoint,
     angleAt: angleAt,
     speedAt: speedAt,

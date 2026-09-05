@@ -1,7 +1,7 @@
 # FTC Vertical Linear Slide Calculator
 
-A static web calculator for a 3-stage FTC vertical linear slide, built on recorded slide, drag and
-motor data for a BWTLink BL-350C-2M stack. Give it total travel, payload, and an optional tip-speed
+A static web calculator for an FTC vertical linear slide, built on recorded slide, drag and motor
+data for a 3-stage BWTLink BL-350C-2M stack and generalized to any stage count. Give it total travel, payload, and an optional tip-speed
 cap; it picks the rigging for you and returns two answers — the stock goBILDA motor to build, and
 the ideal shaft speed for the load — plus the pulley tolerance window and four charts.
 
@@ -17,11 +17,12 @@ For every (motor, pulley diameter, payload, rigging) combination it works out th
 solves the motor operating point in closed form, then integrates the exact solution of
 `J dw/dt = T_s(1 - w/w_f) - tau` to get the time to wind in the required cable.
 
-Cascade rigging moves all three stages together at 1:2:3 ratios with every sliding drag acting at
-once, and takes up `travel / 3` of cable. Continuous rigging holds one string at uniform tension
-and moves the stages sequentially from the top down, in three phases that each take up
-`travel / 3` — `travel` total — with the end speed of each phase carried into the next rather than
-restarting from rest. The supply voltage sags with the current drawn, the effective pulley radius
+Cascade rigging moves all N stages together at 1:2:..:N ratios with every sliding drag acting at
+once, and takes up `travel / N` of cable; stage i contributes `i·m_i` to the cable force and
+`i²·m_i` to the inertia at the drum. Continuous rigging holds one string at uniform tension and
+moves the stages sequentially from the top down, in N phases that each take up `travel / N` —
+`travel` total — with the end speed of each phase carried into the next rather than restarting
+from rest. The supply voltage sags with the current drawn, the effective pulley radius
 includes the string diameter, and stalled combinations (`tau >= T_stall`) are excluded from the
 search rather than counted as zero.
 
@@ -121,7 +122,7 @@ without a network connection the numbers still work and the charts are skipped.
 node tests/physics.test.js
 ```
 
-378 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
+639 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
 checks, the stall diameters, the tip-speed-cap cases, the two external validation points
 (the goBILDA Viper-Slide kit and FTC team The Clueless), the section 8 modelling guards, and the
 addendum's rigging pick and gearing optimizer. It also cross-checks that the answer block, the
@@ -157,6 +158,18 @@ Everything else in section 7 — all four reference tables, the 0.6 kg spot chec
 diameters, the tip-speed-cap checks and the acceptance criteria — already required 0.6 mm and is
 reproduced exactly by the model, unchanged. The regenerated `t` at d=16 is now asserted to equal
 the reference table cell, so the two can no longer drift apart.
+
+## Stage count
+
+Everything is generalized in N, set under Advanced (1–10). Masses are `m_slide + m_hw` for every
+stage below the top and `m_slide·f_inner + m_hw` for the top one. Drag defaults to a
+`1.0 − 0.2·(i−1)` ramp with a 0.4 N floor, and the idler counts follow `N+2` for cascade and `N+3`
+for continuous. The per-interface drag fields regenerate when N changes — existing interfaces keep
+their values, new ones take the ramp, and idler counts move to the new defaults unless they were
+deliberately overridden.
+
+At N = 3 every one of these reduces to the recorded values (1.0/0.8/0.6 N, 5 and 6 idlers), so the
+reference tables are unaffected — the suite verifies that explicitly.
 
 ## Notes
 

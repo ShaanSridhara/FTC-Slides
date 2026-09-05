@@ -518,6 +518,129 @@ section('The recommended build is always the fastest buildable one');
     (100 * (off - best) / best).toFixed(2) + '%');
 })();
 
+section('N-stage generalization');
+(function () {
+  function forN(N, over) {
+    var raw = {};
+    for (var k in Motors.DEFAULTS) raw[k] = Motors.DEFAULTS[k];
+    for (var j = 1; j <= 12; j++) delete raw['d' + j];      // let the ramp regenerate
+    delete raw.n_idler_c; delete raw.n_idler_k;
+    raw.N = N;
+    for (var o in (over || {})) raw[o] = over[o];
+    return Physics.deriveParams(raw);
+  }
+
+  // Defaults must be generated from N, and must land on the recorded values at N=3.
+  near('drag ramp d1', Motors.defaultDrag(1), 1.0, 1e-12);
+  near('drag ramp d2', Motors.defaultDrag(2), 0.8, 1e-12);
+  near('drag ramp d3', Motors.defaultDrag(3), 0.6, 1e-12);
+  near('drag ramp d4', Motors.defaultDrag(4), 0.4, 1e-12);
+  near('drag floors at 0.4 (d5)', Motors.defaultDrag(5), 0.4, 1e-12);
+  near('drag floors at 0.4 (d9)', Motors.defaultDrag(9), 0.4, 1e-12);
+  eq('idlers cascade = N+2 at N=3', Motors.defaultIdlers(3).c, 5);
+  eq('idlers continuous = N+3 at N=3', Motors.defaultIdlers(3).k, 6);
+  eq('idlers cascade = N+2 at N=7', Motors.defaultIdlers(7).c, 9);
+  eq('idlers continuous = N+3 at N=7', Motors.defaultIdlers(7).k, 10);
+
+  [1, 2, 3, 4, 5, 6, 8].forEach(function (N) {
+    var p = forN(N);
+    var tag = 'N=' + N;
+
+    eq(tag + ' mass count', p.masses.length, N);
+    eq(tag + ' drag count', p.drags.length, N);
+    for (var i = 1; i <= N; i++) {
+      var want = (i < N) ? p.m_slide + p.m_hw : p.m_slide * p.f_inner + p.m_hw;
+      near(tag + ' m' + i, p.masses[i - 1], want, 1e-12);
+      near(tag + ' d' + i, p.drags[i - 1], Motors.defaultDrag(i), 1e-12);
+    }
+    eq(tag + ' n_idler_c', p.n_idler_c, N + 2);
+    eq(tag + ' n_idler_k', p.n_idler_k, N + 3);
+    near(tag + ' eta_c', p.eta_c, Math.pow(p.eta_idler, N + 2) * p.eta_spool, 1e-12);
+    near(tag + ' eta_k', p.eta_k, Math.pow(p.eta_idler, N + 3) * p.eta_spool, 1e-12);
+
+    var P = 0.6;
+    var c = Physics.cascadeForce(p, P);
+    var ph = Physics.continuousPhases(p, P);
+
+    // Cascade: F = g*sum(i*m_i) + sum(d_i); inertia = sum(i^2*m_i).
+    var sf = 0, se = 0;
+    for (i = 1; i <= N; i++) {
+      var mi = p.masses[i - 1] + (i === N ? p.m_c + P : 0);
+      sf += i * mi; se += i * i * mi;
+    }
+    near(tag + ' cascade F', c.F, p.g * sf + p.d_tot - p.F_spring, 1e-12);
+    near(tag + ' cascade m_eff', c.m_eff, se, 1e-12);
+    near(tag + ' cascade m_tip', c.m_tip, p.masses[N - 1] + p.m_c + P, 1e-12);
+
+    // Continuous: N phases, top stage first, mass accumulating downward.
+    eq(tag + ' phase count', ph.length, N);
+    eq(tag + ' first phase is the top stage', ph[0].stage, N);
+    eq(tag + ' last phase is stage 1', ph[N - 1].stage, 1);
+    var acc = 0;
+    for (var k = 1; k <= N; k++) {
+      var stage = N - k + 1;
+      acc += p.masses[stage - 1] + (stage === N ? p.m_c + P : 0);
+      near(tag + ' phase ' + k + ' M', ph[k - 1].M, acc, 1e-12);
+      near(tag + ' phase ' + k + ' F', ph[k - 1].F,
+        p.g * acc + p.drags[stage - 1] - p.F_spring, 1e-12);
+    }
+    check(tag + ' phase force rises down the stack',
+      ph.every(function (x, idx) { return idx === 0 || x.F > ph[idx - 1].F; }));
+
+    // Energy: both riggings must still do exactly the true lift work.
+    var E = p.travel / 1000, trueW = 0;
+    for (i = 1; i <= N; i++) {
+      var m2 = p.masses[i - 1] + (i === N ? p.m_c + P : 0);
+      trueW += p.g * m2 * (i * E / N);
+    }
+    near(tag + ' cascade work', c.F_grav * (E / N), trueW, 1e-9);
+    var kw = 0;
+    ph.forEach(function (x) { kw += p.g * x.M; });
+    near(tag + ' continuous work', kw * (E / N), trueW, 1e-9);
+
+    // And it must still actually solve.
+    var ms = Physics.deriveMotors(Motors.MOTORS, p);
+    var a = Physics.stockAnswer(P, p, ms);
+    check(tag + ' produces an answer', !!a.best && a.t > 0 && isFinite(a.t));
+    var full = Physics.fullAnswer(P, p, ms);
+    check(tag + ' ideal RPM is finite and positive',
+      full.ideal && isFinite(full.ideal.rpm) && full.ideal.rpm > 0);
+  });
+
+  // N=3 must reproduce the recorded stack exactly - this is the regression guard.
+  var p3 = forN(3);
+  near('N=3 m1', p3.m1, 0.148, 1e-12);
+  near('N=3 m2', p3.m2, 0.148, 1e-12);
+  near('N=3 m3', p3.m3, 0.089, 1e-12);
+  near('N=3 d_tot', p3.d_tot, 2.4, 1e-12);
+  near('N=3 eta_c', p3.eta_c, 0.8158, 5e-5);
+  near('N=3 eta_k', p3.eta_k, 0.7913, 5e-5);
+  var ms3 = Physics.deriveMotors(Motors.MOTORS, p3);
+  near('N=3 cascade 0.6 kg still 0.4720 s',
+    Physics.analyze(0.6, 'cascade', p3, ms3).best.best_t, 0.4720, 0.0005);
+  near('N=3 continuous 0.6 kg still 0.4568 s',
+    Physics.analyze(0.6, 'continuous', p3, ms3).best.best_t, 0.4568, 0.0005);
+
+  // Explicit d_i overrides must win over the ramp.
+  var pOv = forN(4, { d2: 3.3 });
+  near('explicit d2 override wins', pOv.drags[1], 3.3, 1e-12);
+  near('other interfaces keep the ramp', pOv.drags[2], 0.6, 1e-12);
+  near('d_tot reflects the override', pOv.d_tot, 1.0 + 3.3 + 0.6 + 0.4, 1e-12);
+
+  // N=1: one stage, one phase, take-up equals the full travel either way.
+  var p1 = forN(1);
+  var m1 = Physics.deriveMotors(Motors.MOTORS, p1)[1];
+  eq('N=1 has one phase', Physics.continuousPhases(p1, 0.6).length, 1);
+  var c1 = Physics.solve(m1, 40, 0.6, 'cascade', p1);
+  var k1 = Physics.solve(m1, 40, 0.6, 'continuous', p1);
+  near('N=1 cascade take-up = full travel', c1.takeup, p1.travel / 1000, 1e-12);
+  near('N=1 continuous take-up = full travel', k1.takeup, p1.travel / 1000, 1e-12);
+
+  // Phase labels stay readable past C.
+  eq('phase 1 is A', Physics.phaseName(1), 'A');
+  eq('phase 5 is E', Physics.phaseName(5), 'E');
+})();
+
 section('Cross-checks: the answer, the table and the charts agree');
 (function () {
   [0, 0.6, 1.0].forEach(function (P) {

@@ -6,15 +6,17 @@
   var SWEEP = Motors.PAYLOAD_SWEEP;
   var CLIP = 1.6;   // charts 3 and 4 hide anything above 1.6x that chart's minimum
 
+  var N_MAX = 10;         // keeps the drag grid sane
+
   // Advanced panel layout. G_ext is deliberately absent: it is an optimizer output
-  // now (Answer 2), not an input.
+  // now (Answer 2), not an input. The per-interface drags are generated from N.
   var ADVANCED = [
     ['Geometry and masses', [
       ['N', 'stages', 1], ['m_slide', 'kg per slide', 0.001], ['f_inner', 'inner rail frac', 0.05],
       ['m_hw', 'kg hw/stage', 0.005], ['m_c', 'kg carriage', 0.005],
-      ['d1', 'N drag i1', 0.1], ['d2', 'N drag i2', 0.1], ['d3', 'N drag i3', 0.1],
       ['F_spring', 'N assist', 0.5], ['g', 'm/s^2', 0.001]
     ]],
+    ['__drags__', []],
     ['Drive', [
       ['n_motors', 'motors', 1], ['d_string', 'mm string', 0.1],
       ['n_idler_c', 'idlers casc', 1], ['n_idler_k', 'idlers cont', 1],
@@ -47,27 +49,61 @@
 
   // --------------------------------------------------------------- inputs
 
+  function fieldHtml(key, hint, step) {
+    return '<div class="field"><label for="adv-' + key + '">' + esc(key) + '</label>' +
+           '<div class="ctl"><input id="adv-' + key + '" type="number" step="' + step +
+           '" data-key="' + key + '"></div>' +
+           '<p class="hint">' + esc(hint) + '</p></div>';
+  }
+
   function buildAdvanced() {
     var host = $('advanced-body'), html = '';
     ADVANCED.forEach(function (grp) {
+      if (grp[0] === '__drags__') {
+        html += '<div class="adv-group"><h3>Sliding drag per interface</h3>' +
+                '<div class="adv-grid" id="drag-fields"></div>' +
+                '<p class="hint">One per interface, base upward. Regenerated when N changes.</p>' +
+                '</div>';
+        return;
+      }
       html += '<div class="adv-group"><h3>' + esc(grp[0]) + '</h3><div class="adv-grid">';
-      grp[1].forEach(function (fd) {
-        html += '<div class="field"><label for="adv-' + fd[0] + '">' + esc(fd[0]) + '</label>' +
-                '<div class="ctl"><input id="adv-' + fd[0] + '" type="number" step="' + fd[2] +
-                '" data-key="' + fd[0] + '"></div>' +
-                '<p class="hint">' + esc(fd[1]) + '</p></div>';
-      });
+      grp[1].forEach(function (fd) { html += fieldHtml(fd[0], fd[1], fd[2]); });
       html += '</div></div>';
     });
     html += '<div class="derived" id="derived"></div>';
     host.innerHTML = html;
   }
 
+  // Only this grid depends on N, so regenerating it leaves the N input - and the
+  // caret in it - untouched. Existing interfaces keep their values; new ones get
+  // the default ramp.
+  function buildDragFields(N, keep) {
+    var html = '';
+    for (var i = 1; i <= N; i++) html += fieldHtml('d' + i, 'N drag i' + i, 0.1);
+    $('drag-fields').innerHTML = html;
+    for (i = 1; i <= N; i++) {
+      var el = $('adv-d' + i), k = 'd' + i;
+      el.value = (keep && keep[k] !== undefined && keep[k] !== '')
+        ? keep[k] : Motors.defaultDrag(i);
+    }
+  }
+
   function writeInputs(vals) {
     ['travel', 'payload', 'v_cap'].forEach(function (k) { $(k).value = vals[k]; });
+    buildDragFields(vals.N, null);
     document.querySelectorAll('#advanced-body input[data-key]').forEach(function (el) {
-      el.value = vals[el.dataset.key];
+      var k = el.dataset.key;
+      if (/^d\d+$/.test(k)) return;                 // owned by buildDragFields
+      el.value = vals[k];
     });
+  }
+
+  function readAdvanced() {
+    var v = {};
+    document.querySelectorAll('#advanced-body input[data-key]').forEach(function (el) {
+      v[el.dataset.key] = el.value;
+    });
+    return v;
   }
 
   // Read the form; fall back to the default for anything blank or unparseable.
@@ -86,7 +122,8 @@
     raw.travel = Math.max(1, raw.travel);
     raw.payload = Math.max(0, raw.payload);
     raw.v_cap = Math.max(0, raw.v_cap);
-    raw.N = Math.max(1, Math.round(raw.N));
+    raw.N = Math.min(Math.max(1, Math.round(raw.N)), N_MAX);
+    for (var i = raw.N + 1; i <= N_MAX; i++) delete raw['d' + i];   // stale interfaces
     raw.n_motors = Math.max(1, Math.round(raw.n_motors));
     raw.d_min = Math.max(1, raw.d_min);
     raw.d_max = Math.max(raw.d_min + 1, raw.d_max);
@@ -237,7 +274,8 @@
       (full.ideal ? idealCard(full, p, idealWins) : '');
 
     $('derived').innerHTML = [
-      'm1 = ' + f(p.m1, 3) + ' kg', 'm2 = ' + f(p.m2, 3) + ' kg', 'm3 = ' + f(p.m3, 3) + ' kg',
+      p.N + ' stages',
+      'masses = [' + p.masses.map(function (m) { return f(m, 3); }).join(', ') + '] kg',
       'total drag = ' + f(p.d_tot, 2) + ' N',
       'cascade eff = ' + f(100 * p.eta_c, 1) + '%',
       'continuous eff = ' + f(100 * p.eta_k, 1) + '%'
@@ -401,11 +439,29 @@
   writeInputs(D);
   if (typeof Chart === 'undefined') $('chartwarn').hidden = false;
 
+  // Changing N regenerates the drag grid and moves the idler counts to the new
+  // N+2 / N+3 defaults - but only if they were still sitting on the old defaults,
+  // so a deliberate override survives.
+  var lastN = D.N;
+  function onStageCountChanged(raw) {
+    var n = Math.min(Math.max(1, Math.round(parseFloat(raw))), N_MAX);
+    if (!isFinite(n) || n === lastN) return;
+    var keep = readAdvanced();
+    var oldIdler = Motors.defaultIdlers(lastN), newIdler = Motors.defaultIdlers(n);
+    if (parseFloat(keep.n_idler_c) === oldIdler.c) $('adv-n_idler_c').value = newIdler.c;
+    if (parseFloat(keep.n_idler_k) === oldIdler.k) $('adv-n_idler_k').value = newIdler.k;
+    buildDragFields(n, keep);
+    lastN = n;
+  }
+
   document.addEventListener('input', function (e) {
-    if (e.target.matches('input')) { tableRig = null; render(); }
+    if (!e.target.matches('input')) return;
+    if (e.target.dataset.key === 'N') onStageCountChanged(e.target.value);
+    tableRig = null;
+    render();
   });
   $('reset').addEventListener('click', function () {
-    tableRig = null; writeInputs(D); render();
+    tableRig = null; lastN = D.N; writeInputs(D); render();
   });
   $('table-toggle').addEventListener('click', function (e) {
     var btn = e.target.closest('button[data-rig]');
