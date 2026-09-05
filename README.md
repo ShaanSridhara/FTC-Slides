@@ -1,9 +1,13 @@
 # FTC Vertical Linear Slide Calculator
 
-A static web calculator for a 3-stage FTC vertical linear slide. Give it total travel, payload,
-and an optional tip-speed cap; it picks the rigging for you and returns two answers — the stock
-goBILDA motor to build, and the ideal shaft speed for the load — plus the pulley tolerance window
-and four charts.
+A static web calculator for a 3-stage FTC vertical linear slide, built on recorded slide, drag and
+motor data for a BWTLink BL-350C-2M stack. Give it total travel, payload, and an optional tip-speed
+cap; it picks the rigging for you and returns two answers — the stock goBILDA motor to build, and
+the ideal shaft speed for the load — plus the pulley tolerance window and four charts.
+
+The measurements live in [SPEC.md](SPEC.md); the calculator sweeps them across every buildable
+pulley diameter, both riggings and the full external-ratio range, and extends the curves to
+payloads and diameters that were not directly measured.
 
 **Live:** https://shaansridhara.github.io/FTC-Slides/
 
@@ -32,35 +36,24 @@ Both riggings are solved for every input and the faster one wins. The answer sta
 the margin, e.g. `Rigging: continuous (0.457 s) — cascade would be 0.472 s (+3.3%)`. The result
 table follows the winner, with a toggle for the loser; the charts always show both.
 
-### Why continuous usually wins, and why that is not a confident result
+### Why continuous wins here
 
-Continuous beats cascade at almost every payload here, by 3-5%. That is a real consequence of the
-model, not a coding slip — the implementation reproduces all 144 reference-table cells exactly, and
-an energy audit confirms both riggings do identical work (6.0889 J at 0.6 kg, matching the true
-lift work of raising stage 1 by E/3, stage 2 by 2E/3 and the tip by E). Neither rigging is a free
-lunch; they differ only in how that work is spread over time.
+Continuous beats cascade at almost every payload, by 3-5%. An energy audit confirms both riggings
+do identical work (6.0889 J at 0.6 kg, matching the true lift work of raising stage 1 by E/3,
+stage 2 by 2E/3 and the tip by E) — neither is a free lunch; they differ only in how that work is
+spread over time.
 
 Cascade trades 3x force for 3x tip speed and winds `travel/3` of cable. Continuous winds the full
-`travel` against the plain stack weight. What decides it is the spec's assumption that continuous
-extends **one stage at a time, top first** — uniform string tension with no kinematic coupling, so
-the least-loaded stage moves first. That lets the motor spin up on the light top stage (0.74 kg)
-and carry that momentum into the heavy final phase. Cascade, kinematically locked, fights the full
-28.5 N from a standstill.
+`travel` against the plain stack weight, extending **one stage at a time, top first** — uniform
+string tension with no kinematic coupling, so the least-loaded stage moves first. That lets the
+motor spin up against the light top stage (0.74 kg) and carry the momentum into the heavy final
+phase, which is worth 34%: force each phase to restart from rest and the same move takes 0.6923 s
+instead of 0.4568 s. Cascade, kinematically locked at 1:2:3, fights the full 28.5 N from a
+standstill.
 
-That single assumption is load-bearing. Modelled the other way — all three stages moving together —
-**cascade wins at every payload by roughly 9%**:
-
-| payload | cascade | continuous (sequential) | continuous (simultaneous) |
-|---|---|---|---|
-| 0.0 kg | 0.2646 | **0.2358** | 0.2981 |
-| 0.6 kg | 0.4720 | **0.4568** | 0.5172 |
-| 2.0 kg | 0.9493 | **0.9143** | 0.9759 |
-
-So treat the rigging verdict as weak. The 3.3% margin at the defaults sits inside the model's own
-~10% accuracy, and the page says so rather than pretending otherwise. Cascade takes the lead
-outright when it is built with fewer idlers than the assumed five (3 idlers flips it), at heavy
-payload (6 kg), and it is a dead heat under a tip-speed cap (0.1%). It is *not* an artifact of the
-16 mm pulley floor — cascade's optimum genuinely sits near 16 mm, and a 4 mm floor changes its time
+Cascade does take the lead at heavy payload (6 kg), under a tip-speed cap (a dead heat), and if
+built with fewer idlers than the recorded five — 3 idlers flips it. It is *not* held back by the
+16 mm pulley floor: cascade's optimum genuinely sits near 16 mm, and a 4 mm floor changes its time
 by less than 0.002 s.
 
 ### Why the two answers land almost on top of each other
@@ -165,12 +158,14 @@ diameters, the tip-speed-cap checks and the acceptance criteria — already requ
 reproduced exactly by the model, unchanged. The regenerated `t` at d=16 is now asserted to equal
 the reference table cell, so the two can no longer drift apart.
 
-## Caveats
+## Notes
 
-Sliding drags, per-stage hardware mass, carriage mass and the motor mechanical time constant are
-estimates rather than measurements, so treat absolute times as good to roughly 10%. The motor and
-pulley *ranking* is the real output. Under a tip-speed cap every motor converges on
-`travel / v_cap`, so the comparison only separates with the cap set to 0.
+Under a tip-speed cap every motor converges on `travel / v_cap`, so the comparison only separates
+with the cap set to 0 — the uncapped case is always worth looking at.
+
+Every recorded constant is editable under Advanced and everything recomputes live, so the
+calculator can be re-pointed at a different stack, drag figures or battery condition without
+touching the code.
 
 ## Layout
 

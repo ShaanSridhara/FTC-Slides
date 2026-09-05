@@ -433,11 +433,11 @@ section('Ideal output RPM is a real, input-dependent quantity');
   check('and the RPM gap is reported', a.rpmGap > 0);
 })();
 
-section('Rigging verdict: energy audit and how narrow the win is');
+section('Rigging verdict: energy audit and margin');
 (function () {
   // Both riggings must do exactly the true lift work - no rigging is a free lunch.
   // Cascade winds travel/N against N-amplified force; continuous winds travel
-  // against the plain stack weight, in three phases.
+  // against the plain stack weight, in three phases (sequential, top stage first).
   var P = 0.6, E = P0.travel / 1000, mt = P0.m3 + P0.m_c + P;
   var trueWork = P0.g * (P0.m1 * E / 3 + P0.m2 * 2 * E / 3 + mt * E);
   var noDrag = params({ d1: 0, d2: 0, d3: 0 });
@@ -447,11 +447,10 @@ section('Rigging verdict: energy audit and how narrow the win is');
   near('cascade does the true lift work', wCasc, trueWork, 1e-9);
   near('continuous does the true lift work', wCont, trueWork, 1e-9);
 
-  // Continuous wins at the defaults, but only just.
+  // Continuous wins at the recorded values, by a few percent.
   var a = Physics.stockAnswer(0.6, P0, MOTORS);
-  eq('continuous wins at the defaults', a.rigging, 'continuous');
-  check('and the margin is inside the model accuracy', a.margin < 10,
-    'margin ' + a.margin.toFixed(1) + '%');
+  eq('continuous wins at the recorded values', a.rigging, 'continuous');
+  near('by 3.3%', a.margin, 3.3, 0.1);
 
   // The win is not an artifact of the 16 mm build floor: cascade's optimum is
   // genuinely near 16 mm, so letting it go smaller barely helps.

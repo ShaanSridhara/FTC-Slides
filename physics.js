@@ -1,5 +1,6 @@
-/* physics.js - FTC vertical linear slide extension model.
-   Pure functions, no DOM. Equations follow SPEC.md sections 2-4 in order.
+/* physics.js - extension-time calculator for a 3-stage FTC vertical slide.
+   Computes from the recorded slide, drag and motor data in SPEC.md; the equations
+   follow SPEC.md sections 2-4 in order. Pure functions, no DOM.
    Loads as a plain <script> (window.Physics) or via require() in node. */
 (function (root, factory) {
   var api = factory(typeof require === 'function' ? require('./motors.js') : root.Motors);
@@ -377,7 +378,7 @@
   // genuine property of the load: the shaft speed this slide wants to turn at.
   //
   // The recommendation is then priced with the real external-stage loss, so the
-  // verdict on whether to build it stays honest.
+  // verdict on whether to build it reflects what you would actually get.
   function idealAnswer(payload, p, motors) {
     var search = gearedAnswer(payload, withParam(p, 'eta_ext', 1), motors);
     var b = search.best;

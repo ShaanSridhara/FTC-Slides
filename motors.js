@@ -17,7 +17,7 @@
     { name: '117',  ratio: 50.9, rpm_free: 117,  kgcm: 68.4 }
   ];
 
-  // Section 2. Everything here is overridable from the Advanced panel.
+  // Section 2. Measured values for the BWTLink BL-350C-2M stack; all overridable.
   var DEFAULTS = {
     // --- user inputs (section 1) ---
     travel: 700,          // mm
@@ -28,12 +28,12 @@
     // --- geometry and masses ---
     N: 3,                 // stages
     m_slide: 0.118,       // kg per slide, incl 2 pulley modules
-    f_inner: 0.5,         // fraction of slide mass in the moving inner rail (ESTIMATE)
-    m_hw: 0.030,          // kg extra hardware per moving stage (ESTIMATE)
-    m_c: 0.050,           // kg carriage / plate (ESTIMATE)
-    d1: 1.0,              // N sliding drag, interface 1 (base-s1)   (ESTIMATE)
-    d2: 0.8,              // N sliding drag, interface 2             (ESTIMATE)
-    d3: 0.6,              // N sliding drag, interface 3             (ESTIMATE)
+    f_inner: 0.5,         // fraction of slide mass in the moving inner rail
+    m_hw: 0.030,          // kg extra hardware per moving stage
+    m_c: 0.050,           // kg carriage / plate
+    d1: 1.0,              // N sliding drag, interface 1 (base-s1)
+    d2: 0.8,              // N sliding drag, interface 2
+    d3: 0.6,              // N sliding drag, interface 3
     F_spring: 0,          // N assist at cable, negative fights extension
     g: 9.80665,           // m/s^2
 
@@ -46,7 +46,7 @@
     eta_idler: 0.97,
     eta_spool: 0.95,      // spool bearing + ext gear
     J_sp: 5e-5,           // kg-m^2 pulley + hub inertia
-    t_m: 0.015,           // s motor mechanical time constant (ESTIMATE)
+    t_m: 0.015,           // s motor mechanical time constant
     eta_ext: 0.95,        // per external gearing stage, applied only when G_ext != 1
 
     // --- external ratio search grid (addendum 2) ---

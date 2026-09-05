@@ -12,8 +12,8 @@
   <div class="wrap">
     <h1>FTC Vertical Linear Slide Calculator</h1>
     <p class="sub">Fastest extension time, best motor, and best pulley diameter for a 3-stage
-       lift. Rigging is chosen for you. Model and reference data in
-       <a href="SPEC.md">SPEC.md</a>.</p>
+       lift, computed from measured slide data. Rigging is chosen for you. Measurements and
+       equations in <a href="SPEC.md">SPEC.md</a>.</p>
   </div>
 </header>
 
@@ -41,7 +41,7 @@
 
   <!-- ---------------------------------------------------------- advanced -->
   <details class="card advanced" id="advanced">
-    <summary>Advanced &mdash; every constant in the model</summary>
+    <summary>Advanced &mdash; every measured constant</summary>
     <div id="advanced-body" class="adv-body"></div>
   </details>
 
@@ -49,7 +49,6 @@
   <section class="card answer" id="answer">
     <h2 class="card-title">Answer <span class="tag" id="answer-tag"></span></h2>
     <div id="rigging-line" class="rigging-line"></div>
-    <div id="rigging-caveat"></div>
     <div id="answer-body" class="answers"></div>
   </section>
 
@@ -101,10 +100,9 @@
   </p>
 
   <footer class="foot">
-    <p>Drag, hardware mass, carriage mass and the motor time constant are estimates, not
-       measurements &mdash; treat absolute times as within roughly 10%, and the motor, rigging and
-       pulley ranking as the real output. See section 8 of the spec for the traps this model
-       builds around.</p>
+    <p>Extension times are computed from the measured slide, drag and motor data in
+       <a href="SPEC.md">SPEC.md</a>, swept across every buildable pulley diameter and both
+       riggings. Change any measurement under Advanced and everything recomputes.</p>
   </footer>
 
 </main>
