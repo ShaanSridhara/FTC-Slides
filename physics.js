@@ -466,6 +466,136 @@
     };
   }
 
+  // ------------------------------------------------ addendum 3: stack search
+
+  // Parameters for one (slide, N, motor count). The drag ramp and idler counts
+  // regenerate from N; travel is the extension asked for, not the stack maximum.
+  function stackParams(slide, N, n_motors, extension, payload, v_cap) {
+    var raw = {}, i;
+    for (var k in Motors.DEFAULTS) raw[k] = Motors.DEFAULTS[k];
+    for (i = 1; i <= 12; i++) delete raw['d' + i];
+    delete raw.n_idler_c;
+    delete raw.n_idler_k;
+    raw.m_slide = slide.mass;
+    raw.N = N;
+    raw.n_motors = n_motors;
+    raw.travel = extension;
+    raw.payload = payload;
+    raw.v_cap = v_cap;
+    raw.G_ext = 1;
+    return deriveParams(raw);
+  }
+
+  // Tie-break: fewer stages, then fewer motors, then no external stage, then a
+  // pulley near the middle of the build range.
+  function betterStack(c, best) {
+    if (!best) return true;
+    var dt = c.t - best.t;
+    if (dt < -TIE) return true;
+    if (dt > TIE) return false;
+    if (c.N !== best.N) return c.N < best.N;
+    if (c.n_motors !== best.n_motors) return c.n_motors < best.n_motors;
+    var cg = Math.abs(c.G_ext - 1), bg = Math.abs(best.G_ext - 1);
+    if (Math.abs(cg - bg) > 1e-12) return cg < bg;
+    return Math.abs(c.d - 40) < Math.abs(best.d - 40);
+  }
+
+  // +/-5% pulley window at a chosen build.
+  function windowFor(c, payload) {
+    var ds = diameters(c.params), lo = null, hi = null;
+    for (var i = 0; i < ds.length; i++) {
+      var r = solve(c.motor, ds[i], payload, c.rigging, c.params);
+      if (r && r.t <= WINDOW_FACTOR * c.t) { if (lo === null) lo = ds[i]; hi = ds[i]; }
+    }
+    return [lo, hi];
+  }
+
+  function reaches(slide, N, extension) {
+    return N * slide.stroke >= extension - 1e-9;
+  }
+
+  function annotate(c, extension) {
+    c.window = windowFor(c, c.params.payload);
+    c.leftover = c.N * c.slide.stroke - extension;
+    c.height = c.slide.nominal_mm;
+    c.I_motor = c.res.I / c.n_motors;      // the port sees the per-motor current
+    return c;
+  }
+
+  // Every (slide, N) that reaches the extension, best build for each, plus the
+  // outright winner. grid is [1] for the stock search.
+  function searchStacks(extension, payload, v_cap, grid) {
+    var rows = [], best = null, reachable = false;
+
+    Motors.SLIDES.forEach(function (slide) {
+      Motors.STAGE_COUNTS.forEach(function (N) {
+        if (!reaches(slide, N, extension)) return;
+        reachable = true;
+        var rowBest = null;
+
+        Motors.MOTOR_COUNTS.forEach(function (nm) {
+          var base = stackParams(slide, N, nm, extension, payload, v_cap);
+          var ms = deriveMotors(Motors.MOTORS, base);
+          var ds = diameters(base);
+
+          for (var gi = 0; gi < grid.length; gi++) {
+            var p = grid[gi] === 1 ? base : withParam(base, 'G_ext', grid[gi]);
+            for (var mi = 0; mi < ms.length; mi++) {
+              for (var ri = 0; ri < RIGGINGS.length; ri++) {
+                for (var di = 0; di < ds.length; di++) {
+                  var res = solve(ms[mi], ds[di], payload, RIGGINGS[ri], p);
+                  if (!res) continue;                 // STALL never enters the argmin
+                  var cand = {
+                    slide: slide, N: N, n_motors: nm, motor: ms[mi],
+                    rigging: RIGGINGS[ri], d: ds[di], G_ext: grid[gi],
+                    t: res.t, res: res, params: p
+                  };
+                  if (betterStack(cand, rowBest)) rowBest = cand;
+                  if (betterStack(cand, best)) best = cand;
+                }
+              }
+            }
+          }
+        });
+
+        if (rowBest) rows.push(annotate(rowBest, extension));
+      });
+    });
+
+    rows.sort(function (a, b) { return a.t - b.t; });
+    if (best) annotate(best, extension);
+    return { rows: rows, best: best, reachable: reachable };
+  }
+
+  function stockStack(extension, payload, v_cap) {
+    return searchStacks(extension, payload, v_cap, [1]);
+  }
+
+  function gearedStack(extension, payload, v_cap, gridOverride) {
+    var grid = gridOverride || gearGrid(deriveParams(Motors.DEFAULTS));
+    var out = searchStacks(extension, payload, v_cap, grid);
+    if (out.best) {
+      out.rpm_equiv = out.best.motor.rpm_free / out.best.G_ext;
+      out.teeth = out.best.G_ext === 1 ? null : nearestToothPair(out.best.G_ext);
+    }
+    return out;
+  }
+
+  // Everything the page needs for one set of inputs.
+  function stackAnswer(extension, payload, v_cap) {
+    var stock = stockStack(extension, payload, v_cap);
+    if (!stock.reachable || !stock.best) {
+      return { reachable: stock.reachable, stock: stock, geared: null,
+               gain: null, gearingHelps: false };
+    }
+    var geared = gearedStack(extension, payload, v_cap);
+    var gain = geared.best ? 100 * (stock.best.t - geared.best.t) / stock.best.t : null;
+    return {
+      reachable: true, stock: stock, geared: geared, gain: gain,
+      gearingHelps: gain !== null && gain >= 2
+    };
+  }
+
   // ---------------------------------------------------------------- extras
 
   // Largest pulley that still lifts (u = 1). V sags with load, so iterate the supply.
@@ -534,6 +664,13 @@
     gearedAnswer: gearedAnswer,
     idealAnswer: idealAnswer,
     fullAnswer: fullAnswer,
+    stackParams: stackParams,
+    searchStacks: searchStacks,
+    stockStack: stockStack,
+    gearedStack: gearedStack,
+    stackAnswer: stackAnswer,
+    windowFor: windowFor,
+    reaches: reaches,
     stallDiameter: stallDiameter,
     holdCheck: holdCheck
   };

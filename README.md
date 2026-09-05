@@ -1,115 +1,53 @@
 # FTC Vertical Linear Slide Calculator
 
-A static web calculator for an FTC vertical linear slide, built on recorded slide, drag and motor
-data for a 3-stage BWTLink BL-350C-2M stack and generalized to any stage count. Give it total travel, payload, and an optional tip-speed
-cap; it picks the rigging for you and returns two answers — the stock goBILDA motor to build, and
-the ideal shaft speed for the load — plus the pulley tolerance window and four charts.
-
-The measurements live in [SPEC.md](SPEC.md); the calculator sweeps them across every buildable
-pulley diameter, both riggings and the full external-ratio range, and extends the curves to
-payloads and diameters that were not directly measured.
+Tell it how far you need to extend, what you are lifting, and optionally a tip-speed cap. It
+searches every BWTLink slide, stage count, motor count, motor, rigging and pulley diameter, and
+returns the fastest build. Three inputs, no knobs.
 
 **Live:** https://shaansridhara.github.io/FTC-Slides/
 
-## What it computes
+## What it searches
 
-For every (motor, pulley diameter, payload, rigging) combination it works out the cable force,
-solves the motor operating point in closed form, then integrates the exact solution of
-`J dw/dt = T_s(1 - w/w_f) - tau` to get the time to wind in the required cable.
-
-Cascade rigging moves all N stages together at 1:2:..:N ratios with every sliding drag acting at
-once, and takes up `travel / N` of cable; stage i contributes `i·m_i` to the cable force and
-`i²·m_i` to the inertia at the drum. Continuous rigging holds one string at uniform tension and
-moves the stages sequentially from the top down, in N phases that each take up `travel / N` —
-`travel` total — with the end speed of each phase carried into the next rather than restarting
-from rest. The supply voltage sags with the current drawn, the effective pulley radius
-includes the string diameter, and stalled combinations (`tau >= T_stall`) are excluded from the
-search rather than counted as zero.
-
-The optimum pulley is found by sweeping all 33 buildable diameters and taking the argmin — the
-steady-state optimum `r = eta*T_s/(2F)` is *not* the minimum-time pulley, because rotor and load
-inertia pull the true optimum 5–10% smaller. Because that optimum can sit on a cliff, the tool
-always reports the ±5% window alongside it, and flags any result pinned at the build limits.
-
-### Rigging is chosen, not entered
-
-Both riggings are solved for every input and the faster one wins. The answer states the pick and
-the margin, e.g. `Rigging: continuous (0.457 s) — cascade would be 0.472 s (+3.3%)`. The result
-table follows the winner, with a toggle for the loser; the charts always show both.
-
-### Why continuous wins here
-
-Continuous beats cascade at almost every payload, by 3-5%. An energy audit confirms both riggings
-do identical work (6.0889 J at 0.6 kg, matching the true lift work of raising stage 1 by E/3,
-stage 2 by 2E/3 and the tip by E) — neither is a free lunch; they differ only in how that work is
-spread over time.
-
-Cascade trades 3x force for 3x tip speed and winds `travel/3` of cable. Continuous winds the full
-`travel` against the plain stack weight, extending **one stage at a time, top first** — uniform
-string tension with no kinematic coupling, so the least-loaded stage moves first. That lets the
-motor spin up against the light top stage (0.74 kg) and carry the momentum into the heavy final
-phase, which is worth 34%: force each phase to restart from rest and the same move takes 0.6923 s
-instead of 0.4568 s. Cascade, kinematically locked at 1:2:3, fights the full 28.5 N from a
-standstill.
-
-Cascade does take the lead at heavy payload (6 kg), under a tip-speed cap (a dead heat), and if
-built with fewer idlers than the recorded five — 3 idlers flips it. It is *not* held back by the
-16 mm pulley floor: cascade's optimum genuinely sits near 16 mm, and a 4 mm floor changes its time
-by less than 0.002 s.
-
-### Why the two answers land almost on top of each other
-
-Tip speed goes as **RPM x pulley diameter**. They are one knob, not two — trading a slower shaft
-against a bigger pulley is the same machine relabelled. At the defaults, Answer 1 is 1150 rpm on a
-50 mm pulley (product 57,500) and Answer 2 is 719 rpm on an 80 mm pulley (product 57,500). Identical.
-Of course they take the same time.
-
-On top of that, the optimum is flat, as any minimum is — the first derivative is zero there, so
-error costs only second order. Being 20% off on the pulley costs about 2%:
-
-| pulley error | time cost |
+| axis | values |
 |---|---|
-| 6% | 0.2% |
-| 12% | 0.9% |
-| 18% | 2.1% |
-| 24% | 3.7% |
+| slide | BL-200A-2M (8 in, 121 mm stroke), BL-300C-2M (12 in, 205), BL-350C-2M (14 in, 245.5), BL-400B-2M (16 in, 283) |
+| stages | 2, 3, 4, 5 — only combinations where `N × stroke ≥ extension` |
+| motors | 1 or 2 |
+| motor | the six goBILDA Yellow Jackets |
+| rigging | cascade and continuous, both always |
+| pulley | 33-point grid, 16–80 mm |
 
-This is good news for building: the +/-5% window is genuinely wide, and you do not need to hit the
-optimum diameter exactly. It also means a "better" ideal RPM is usually worth very little.
+Roughly 12,700 solves for Answer 1, and 113× that for the external-ratio sweep in Answer 2.
+Answer 1, the table and the charts paint immediately; the geared search runs on the next tick and
+fills Answer 2 in when it lands, so typing stays responsive without coarsening the search. Input is
+debounced 200 ms.
 
-**Answer 2's headline is the achievable time, not the theoretical one.** `t_ideal` assumes a
-lossless external stage, which you cannot bolt to a robot; it is shown only as a dimmed footnote.
-The card leads with what you would actually get after paying `eta_ext`, and the FASTEST badge always
-goes to the quicker of the two *real* options — never to the lossless number. Tests enforce this.
+Every constant from the recorded data is baked into `motors.js`. Travel used is the extension
+asked for, not the stack's maximum, and the drag ramp and idler counts regenerate from N.
 
-### Two answers
+## The physics
 
-**Answer 1 — Stock** is what you build: direct drive (`G_ext = 1`), six motors x 33 pulley
-diameters x both riggings, argmin time.
+For every combination it works out the cable force, solves the motor operating point in closed
+form, then integrates the exact solution of `J dw/dt = T_s(1 - w/w_f) - tau`.
 
-**Answer 2 — Ideal** is the shaft speed the load actually wants. Every Yellow Jacket shares the
-same RS-555 core — `rpm x ratio ≈ 5980` for all six — so the gearbox only sets a ratio, and the
-real question is what *total* output ratio minimises the time. Gear all six motors to the same
-equivalent output RPM and their curves collapse to within a few percent, which is what makes
-"ideal RPM" a single well-defined number rather than a per-motor quirk. The residual spread tracks
-`T_stall / ratio` (0.124–0.149 across the lineup), and that is why the 1150 is almost always the
-best base motor.
+Cascade moves all N stages together at 1:2:..:N with every drag acting at once, taking up
+`travel / N` of cable; stage i contributes `i·m_i` to the force and `i²·m_i` to the inertia at the
+drum. Continuous holds one string at uniform tension and extends **one stage at a time, top
+first** — N phases each taking up `travel / N`, `travel` total, with the end speed of each phase
+carried into the next rather than restarting from rest. That momentum is worth 34%.
 
-The ideal search runs at `eta_ext = 1`, and this matters. `eta_ext` is a *step* cost: it is
-charged at every ratio except exactly 1.0. Asking "which ratio is best" while one ratio alone
-holds a 5% discount just returns that ratio every time — the reported ideal RPM would be pinned
-to the stock RPM of whichever motor won, constant no matter what you typed. Searching on a level
-playing field makes it a genuine property of the load: **1353 RPM at 0 kg, 719 at 0.6 kg, 192 at
-2 kg**, and it moves with travel too.
+Two motors scale torque, current and rotor inertia together; the port limit is checked against the
+**per-motor** current, which is the total divided by the motor count. Stalled combinations are
+excluded from every argmin rather than counted as zero. Ties break toward fewer stages, then fewer
+motors, then no external stage, then a pulley near 40 mm.
 
-The recommendation is then *priced* with the real external-stage loss, so the verdict stays
-honest. With the defaults the ideal is 719 RPM, the 1150 sits 60% above it — but the better ratio
-is worth only 0.9%, and an external stage costs 5%, so building it comes out **2.3% slower**. The
-tool says so and tells you to build Answer 1. Gearing only earns its keep when the pulley optimum
-is pinned at a build limit; force that (a 60 mm minimum pulley at 2 kg) and it finds a real gain.
+The optimum pulley is found by sweeping all 33 diameters and taking the argmin — the steady-state
+optimum `r = eta·T_s/(2F)` is *not* the minimum-time pulley, because inertia pulls the true optimum
+5–10% smaller. Tip speed goes as RPM × pulley diameter, so those two are one knob, not two, and the
+curve is flat near the bottom: being 20% off on the pulley costs about 2%.
 
-Full model, constants, and reference data: [SPEC.md](SPEC.md) and
-[SPEC_ADDENDUM_2.md](SPEC_ADDENDUM_2.md).
+Full detail: [SPEC.md](SPEC.md), [SPEC_ADDENDUM_2.md](SPEC_ADDENDUM_2.md),
+[SPEC_ADDENDUM_3.md](SPEC_ADDENDUM_3.md).
 
 ## Running it
 
@@ -122,7 +60,7 @@ without a network connection the numbers still work and the charts are skipped.
 node tests/physics.test.js
 ```
 
-639 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
+677 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
 checks, the stall diameters, the tip-speed-cap cases, the two external validation points
 (the goBILDA Viper-Slide kit and FTC team The Clueless), the section 8 modelling guards, and the
 addendum's rigging pick and gearing optimizer. It also cross-checks that the answer block, the

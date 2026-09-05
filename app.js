@@ -2,42 +2,19 @@
 (function () {
   'use strict';
 
-  var D = Motors.DEFAULTS;
   var SWEEP = Motors.PAYLOAD_SWEEP;
-  var CLIP = 1.6;   // charts 3 and 4 hide anything above 1.6x that chart's minimum
+  var CLIP = 1.6;         // the diameter chart hides anything above 1.6x its best
+  var DEBOUNCE = 200;     // ms
 
-  var N_MAX = 10;         // keeps the drag grid sane
-
-  // Advanced panel layout. G_ext is deliberately absent: it is an optimizer output
-  // now (Answer 2), not an input. The per-interface drags are generated from N.
-  var ADVANCED = [
-    ['Geometry and masses', [
-      ['N', 'stages', 1], ['m_slide', 'kg per slide', 0.001], ['f_inner', 'inner rail frac', 0.05],
-      ['m_hw', 'kg hw/stage', 0.005], ['m_c', 'kg carriage', 0.005],
-      ['F_spring', 'N assist', 0.5], ['g', 'm/s^2', 0.001]
-    ]],
-    ['__drags__', []],
-    ['Drive', [
-      ['n_motors', 'motors', 1], ['d_string', 'mm string', 0.1],
-      ['n_idler_c', 'idlers casc', 1], ['n_idler_k', 'idlers cont', 1],
-      ['eta_idler', 'per idler', 0.01], ['eta_spool', 'spool+gear', 0.01],
-      ['eta_ext', 'per ext stage', 0.01],
-      ['J_sp', 'kg m^2 spool', 1e-5], ['t_m', 's motor tc', 0.001]
-    ]],
-    ['Electrical', [
-      ['V_batt', 'V open ckt', 0.1], ['I_other', 'A other', 0.5], ['R_series', 'ohm', 0.005],
-      ['I_port', 'A port limit', 1], ['I_stall', 'A stall', 0.1], ['I_free', 'A free', 0.05]
-    ]],
-    ['Build limits', [
-      ['d_min', 'mm smallest', 1], ['d_max', 'mm largest', 1]
-    ]]
-  ];
+  var INPUT_DEFAULTS = { extension: 700, payload: 0.6, v_cap: 0 };
 
   var COLORS = ['#1f5fd0', '#e2574c', '#0d9b6c', '#c9821a', '#7b52c9', '#4a5666'];
 
   var $ = function (id) { return document.getElementById(id); };
   var charts = {};
-  var tableRig = null;      // null = follow the winner; otherwise a pinned rigging
+  var debounceTimer = null;
+  var gearedTimer = null;
+  var runId = 0;          // guards a slow geared search against newer input
 
   // ------------------------------------------------------------ formatting
 
@@ -46,92 +23,24 @@
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c];
   }); }
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+  function motorWord(n) { return n + (n === 1 ? ' motor' : ' motors'); }
 
   // --------------------------------------------------------------- inputs
 
-  function fieldHtml(key, hint, step) {
-    return '<div class="field"><label for="adv-' + key + '">' + esc(key) + '</label>' +
-           '<div class="ctl"><input id="adv-' + key + '" type="number" step="' + step +
-           '" data-key="' + key + '"></div>' +
-           '<p class="hint">' + esc(hint) + '</p></div>';
-  }
-
-  function buildAdvanced() {
-    var host = $('advanced-body'), html = '';
-    ADVANCED.forEach(function (grp) {
-      if (grp[0] === '__drags__') {
-        html += '<div class="adv-group"><h3>Sliding drag per interface</h3>' +
-                '<div class="adv-grid" id="drag-fields"></div>' +
-                '<p class="hint">One per interface, base upward. Regenerated when N changes.</p>' +
-                '</div>';
-        return;
-      }
-      html += '<div class="adv-group"><h3>' + esc(grp[0]) + '</h3><div class="adv-grid">';
-      grp[1].forEach(function (fd) { html += fieldHtml(fd[0], fd[1], fd[2]); });
-      html += '</div></div>';
-    });
-    html += '<div class="derived" id="derived"></div>';
-    host.innerHTML = html;
-  }
-
-  // Only this grid depends on N, so regenerating it leaves the N input - and the
-  // caret in it - untouched. Existing interfaces keep their values; new ones get
-  // the default ramp.
-  function buildDragFields(N, keep) {
-    var html = '';
-    for (var i = 1; i <= N; i++) html += fieldHtml('d' + i, 'N drag i' + i, 0.1);
-    $('drag-fields').innerHTML = html;
-    for (i = 1; i <= N; i++) {
-      var el = $('adv-d' + i), k = 'd' + i;
-      el.value = (keep && keep[k] !== undefined && keep[k] !== '')
-        ? keep[k] : Motors.defaultDrag(i);
-    }
-  }
-
-  function writeInputs(vals) {
-    ['travel', 'payload', 'v_cap'].forEach(function (k) { $(k).value = vals[k]; });
-    buildDragFields(vals.N, null);
-    document.querySelectorAll('#advanced-body input[data-key]').forEach(function (el) {
-      var k = el.dataset.key;
-      if (/^d\d+$/.test(k)) return;                 // owned by buildDragFields
-      el.value = vals[k];
-    });
-  }
-
-  function readAdvanced() {
+  function readInputs() {
     var v = {};
-    document.querySelectorAll('#advanced-body input[data-key]').forEach(function (el) {
-      v[el.dataset.key] = el.value;
+    Object.keys(INPUT_DEFAULTS).forEach(function (k) {
+      var raw = parseFloat($(k).value);
+      v[k] = isFinite(raw) ? raw : INPUT_DEFAULTS[k];
     });
+    v.extension = Math.max(1, v.extension);
+    v.payload = Math.max(0, v.payload);
+    v.v_cap = Math.max(0, v.v_cap);
     return v;
   }
 
-  // Read the form; fall back to the default for anything blank or unparseable.
-  function readParams() {
-    var raw = {};
-    for (var k in D) raw[k] = D[k];
-    ['travel', 'payload', 'v_cap'].forEach(function (key) {
-      var v = parseFloat($(key).value);
-      if (isFinite(v)) raw[key] = v;
-    });
-    document.querySelectorAll('#advanced-body input[data-key]').forEach(function (el) {
-      var v = parseFloat(el.value);
-      if (isFinite(v)) raw[el.dataset.key] = v;
-    });
-    // Guards so a half-typed value cannot produce nonsense.
-    raw.travel = Math.max(1, raw.travel);
-    raw.payload = Math.max(0, raw.payload);
-    raw.v_cap = Math.max(0, raw.v_cap);
-    raw.N = Math.min(Math.max(1, Math.round(raw.N)), N_MAX);
-    for (var i = raw.N + 1; i <= N_MAX; i++) delete raw['d' + i];   // stale interfaces
-    raw.n_motors = Math.max(1, Math.round(raw.n_motors));
-    raw.d_min = Math.max(1, raw.d_min);
-    raw.d_max = Math.max(raw.d_min + 1, raw.d_max);
-    raw.g_step = Math.min(Math.max(0.01, raw.g_step), 1);
-    raw.g_min = Math.min(Math.max(0.05, raw.g_min), 20);
-    raw.g_max = Math.min(Math.max(raw.g_min, raw.g_max), 20);
-    raw.G_ext = 1;                       // Answer 1 is direct drive by definition
-    return Physics.deriveParams(raw);
+  function writeInputs(v) {
+    Object.keys(INPUT_DEFAULTS).forEach(function (k) { $(k).value = v[k]; });
   }
 
   // --------------------------------------------------------------- answer
@@ -141,218 +50,143 @@
            (u ? ' <small>' + u + '</small>' : '') + '</div></div>';
   }
 
-  function riggingLine(stock) {
-    if (!stock.rigging) return '';
-    var s = '<span class="rig-pick">Rigging: <b>' + esc(stock.rigging) + '</b> (' +
-            f(stock.t, 3) + ' s)</span>';
-    if (stock.other) {
-      s += '<span class="rig-margin">&mdash; ' + esc(stock.other) + ' would be ' +
-           f(stock.t_other, 3) + ' s (+' + f(stock.margin, 1) + '%)</span>';
-    }
-    return s;
+  function buildStats(c) {
+    return stat('Slide', esc(c.slide.model), c.slide.nominal_in + ' in') +
+      stat('Stages', c.N, '') +
+      stat('Motors', c.n_motors, esc(c.motor.name) + ' RPM') +
+      stat('Rigging', cap(c.rigging), '') +
+      stat('Pulley window', f(c.window[0], 0) + '&ndash;' + f(c.window[1], 0), 'mm') +
+      stat('Retracted height', f(c.height, 0), 'mm') +
+      stat('Stroke spare', f(c.leftover, 0), 'mm') +
+      stat('Torque used', f(100 * c.res.u, 1), '% of stall');
   }
 
-  // Answer 1 - stock, direct drive.
-  function stockCard(stock, p, fastest) {
-    var b = stock.best, r = b.best;
+  function warnings(c) {
+    var out = [];
+    // The port limit is per motor: tau is the total across n_motors, so each
+    // controller sees I / n_motors.
+    var perMotor = c.res.I / c.n_motors;
+    if (perMotor > c.params.I_port) {
+      out.push('Each motor draws <b>' + f(perMotor, 2) + ' A</b>, over the ' +
+        f(c.params.I_port, 0) + ' A port limit. Expect the port to trip.');
+    }
+    if (c.res.u > 0.7) {
+      out.push('Running at <b>' + f(100 * c.res.u, 0) + '% of stall torque</b> &mdash; hot, and ' +
+        'close to the cliff. A smaller pulley buys margin.');
+    }
+    if (c.leftover < 0.02 * c.N * c.slide.stroke) {
+      out.push('Only <b>' + f(c.leftover, 0) + ' mm</b> of stroke spare &mdash; almost no margin ' +
+        'for rigging losses or a hard stop.');
+    }
+    return out.map(function (m) { return '<div class="flag">' + m + '</div>'; }).join('');
+  }
+
+  function stockCard(best, fastest) {
     return '<div class="ans">' +
       '<div class="ans-head"><h3>Answer 1 &mdash; Stock' +
         (fastest ? ' <span class="fastest">FASTEST</span>' : '') + '</h3>' +
-        '<p class="ans-sub">Best Yellow Jacket, direct drive</p></div>' +
+        '<p class="ans-sub">Direct drive, no external gearing</p></div>' +
       '<div class="answer-head">' +
-        '<div class="headline">Motor <strong>' + esc(b.motor.name) + '</strong> RPM</div>' +
-        '<div class="headline">Pulley <strong class="big">' + f(b.best_d, 0) + '</strong> mm</div>' +
-        '<div class="headline">In <strong class="big">' + f(b.best_t, 3) + '</strong> s</div>' +
+        '<div class="headline">' + best.N + ' &times; <strong>' +
+          esc(best.slide.model) + '</strong></div>' +
+        '<div class="headline">Pulley <strong class="big">' + f(best.d, 0) + '</strong> mm</div>' +
+        '<div class="headline">In <strong class="big">' + f(best.t, 3) + '</strong> s</div>' +
       '</div>' +
-      '<div class="stats">' +
-        stat('Pulley window', f(b.window[0], 0) + '&ndash;' + f(b.window[1], 0), 'mm') +
-        stat('Torque used', f(100 * r.u, 1), '% of stall') +
-      '</div>' + flagsFor(b, r, p) + '</div>';
+      '<div class="stats">' + buildStats(best) + '</div>' +
+      warnings(best) + '</div>';
   }
 
-  // Answer 2 - the shaft speed this load actually wants, and whether it is
-  // worth building an external stage to reach it.
-  function idealCard(full, p, fastest) {
-    var id = full.ideal;
-    var gap = full.rpmGap;
-    var stockRpm = full.stock.best.motor.rpm_free;
-    var pinned = id.d_ideal >= p.d_max - 1e-9;
-
-    var reach = id.G_ext === 1
-      ? 'The ' + esc(id.motor.name) + ' already turns at the ideal speed &mdash; no gearing needed.'
-      : 'To reach it: a <b>' + esc(id.motor.name) + '</b> geared <b>' + f(id.G_ext, 2) + ':1</b>' +
-        (id.teeth ? ' (&asymp; ' + id.teeth.driven + 'T:' + id.teeth.driver + 'T)' : '') + '.';
-
-    var verdict;
-    if (full.gearingHelps) {
-      verdict = '<div class="flag good">Worth building: <b>' + f(full.gain, 1) +
-        '% faster</b> than Answer 1, after the external stage loss.</div>';
-    } else if (full.gain !== null && full.gain > 0) {
-      verdict = '<div class="flag">Only <b>' + f(full.gain, 1) + '%</b> faster once the ' +
-        'external stage loss is paid &mdash; not worth the extra parts. Build Answer 1.</div>';
-    } else {
-      verdict = '<div class="flag">Building this is <b>' + f(Math.abs(full.gain), 1) +
-        '% slower</b> once the external stage loss is paid. Build Answer 1.</div>';
+  function gearedCard(res, fastest) {
+    if (!res) {
+      return '<div class="ans pending"><div class="ans-head"><h3>Answer 2 &mdash; Geared</h3>' +
+        '<p class="ans-sub">Searching every external ratio&hellip;</p></div></div>';
     }
+    var g = res.geared, b = g.best, helps = res.gearingHelps;
+    var reach = b.G_ext === 1
+      ? 'No external stage &mdash; the pulley alone sets the ratio.'
+      : 'Gear the <b>' + esc(b.motor.name) + '</b> at <b>' + f(b.G_ext, 2) + ':1</b>' +
+        (g.teeth ? ' (&asymp; ' + g.teeth.driven + 'T:' + g.teeth.driver + 'T)' : '') + '.';
 
-    // The two answers routinely land within a hair of each other, which looks wrong
-    // until you notice tip speed goes as RPM x pulley diameter. Trading one against
-    // the other is not a different machine, it is the same machine relabelled.
-    var flat = '';
-    if (full.gain !== null && Math.abs(full.gain) < 3) {
-      var prodStock = stockRpm * full.stock.best.best_d;
-      var prodIdeal = id.rpm * id.d_ideal;
-      flat = '<div class="flag tie">Why these are nearly identical: tip speed goes as ' +
-        '<b>RPM &times; pulley diameter</b>, so the two are one knob, not two. ' +
-        f(stockRpm, 0) + '&times;' + f(full.stock.best.best_d, 0) + ' = ' +
-        Math.round(prodStock).toLocaleString() + ' against ' + f(id.rpm, 0) + '&times;' +
-        f(id.d_ideal, 0) + ' = ' + Math.round(prodIdeal).toLocaleString() + ' &mdash; ' +
-        f(100 * Math.abs(prodStock - prodIdeal) / prodStock, 0) + '% apart. ' +
-        'Near the optimum the curve is flat: being 20% off on the pulley costs about 2%, so anywhere in the window builds the same speed.</div>';
-    }
+    var verdict = helps
+      ? '<div class="flag good">Worth building: <b>' + f(res.gain, 1) +
+        '% faster</b> than Answer 1.</div>'
+      : '<div class="flag">Gearing doesn&rsquo;t help &mdash; build Answer 1.' +
+        (res.gain > 0.05 ? ' It would gain only ' + f(res.gain, 1) + '%.' : '') + '</div>';
 
-    var pin = pinned
-      ? '<div class="flag">The ideal pulley is capped at your ' + f(p.d_max, 0) +
-        ' mm build maximum, so the ratio is being made up with gearing. Raise d_max in ' +
-        'Advanced if you can turn a bigger pulley.</div>'
-      : '';
-
-    return '<div class="ans">' +
-      '<div class="ans-head"><h3>Answer 2 &mdash; Ideal' +
+    return '<div class="ans' + (helps ? '' : ' muted') + '">' +
+      '<div class="ans-head"><h3>Answer 2 &mdash; Geared' +
         (fastest ? ' <span class="fastest">FASTEST</span>' : '') + '</h3>' +
-        '<p class="ans-sub">The shaft speed this load wants</p></div>' +
+        '<p class="ans-sub">Same search plus an external ratio</p></div>' +
       '<div class="answer-head">' +
-        '<div class="headline">Ideal output <strong class="big">' + f(id.rpm, 0) +
+        '<div class="headline">Output <strong class="big">' + f(g.rpm_equiv, 0) +
           '</strong> RPM</div>' +
-        '<div class="headline">If you build it <strong class="big">' + f(id.t, 3) +
-          '</strong> s</div>' +
+        '<div class="headline">Pulley <strong class="big">' + f(b.d, 0) + '</strong> mm</div>' +
+        '<div class="headline">In <strong class="big">' + f(b.t, 3) + '</strong> s</div>' +
       '</div>' +
-      '<div class="stats">' +
-        stat('Your ' + esc(String(stockRpm)) + ' RPM motor is',
-             (gap >= 0 ? '+' : '') + f(gap, 0) + '%', 'off ideal') +
-        stat('Ideal pulley', f(id.d_ideal, 0), 'mm') +
+      '<div class="stats">' + buildStats(b) +
+        stat('External ratio', b.G_ext === 1 ? 'direct' : f(b.G_ext, 2) + ':1', '') +
       '</div>' +
-      '<p class="teeth">' + reach + '</p>' +
-      '<p class="teeth dim">With a lossless external stage it would be ' + f(id.t_ideal, 3) +
-        ' s; the ' + f(100 * (1 - p.eta_ext), 0) + '% stage loss is what you actually pay.</p>' +
-      verdict + pin + flat + '</div>';
+      '<p class="teeth">' + reach + '</p>' + verdict + warnings(b) + '</div>';
   }
 
-  // Guards worth surfacing (spec section 8), for the stock answer.
-  function flagsFor(b, r, p) {
-    var flags = [];
-    if (b.at_min) flags.push('Best pulley is pinned at the <b>' + f(p.d_min, 0) +
-      ' mm build minimum</b> &mdash; the true optimum is smaller than you can build.');
-    if (b.at_max) flags.push('Best pulley is pinned at the <b>' + f(p.d_max, 0) +
-      ' mm build maximum</b> &mdash; a larger pulley would still be faster.');
-    if (b.window[0] === b.window[1]) flags.push('The &plusmn;5% window is a <b>single diameter</b>; ' +
-      'this sits on a cliff, so a small build error costs real time.');
-    if (r.I > p.I_port) flags.push('Draws <b>' + f(r.I, 2) + ' A</b>, over the ' + f(p.I_port, 0) +
-      ' A Control Hub port limit. Expect the port to trip.');
-    if (r.u > 0.7) flags.push('Running at <b>' + f(100 * r.u, 0) + '% of stall torque</b> &mdash; ' +
-      'hot, and close to the cliff. A smaller pulley buys margin.');
-    return flags.map(function (m) { return '<div class="flag">' + m + '</div>'; }).join('');
-  }
-
-  function renderAnswer(p, full) {
-    var stock = full.stock;
-    $('answer-tag').textContent = f(p.payload, 1) + ' kg · ' + f(p.travel, 0) + ' mm';
-
-    if (!stock.best) {
-      $('rigging-line').innerHTML = '';
-      $('answer-body').innerHTML = '<div class="flag stall">Every motor stalls at every pulley ' +
-        'from ' + f(p.d_min, 0) + ' to ' + f(p.d_max, 0) + ' mm, on both riggings. ' +
-        'Lower the payload, or allow a smaller pulley.</div>';
-      return;
-    }
-
-    $('rigging-line').innerHTML = riggingLine(stock);
-    // Whichever is genuinely quicker to build gets the badge - never the
-    // lossless-gearing number, which is not a thing you can bolt to a robot.
-    var idealWins = !!(full.ideal && full.ideal.t !== null && full.ideal.t < stock.t - 1e-9);
-    $('answer-body').innerHTML = stockCard(stock, p, !idealWins) +
-      (full.ideal ? idealCard(full, p, idealWins) : '');
-
-    $('derived').innerHTML = [
-      p.N + ' stages',
-      'masses = [' + p.masses.map(function (m) { return f(m, 3); }).join(', ') + '] kg',
-      'total drag = ' + f(p.d_tot, 2) + ' N',
-      'cascade eff = ' + f(100 * p.eta_c, 1) + '%',
-      'continuous eff = ' + f(100 * p.eta_k, 1) + '%'
-    ].map(function (s) { return '<span>' + s + '</span>'; }).join('');
+  function renderUnreachable(inp) {
+    var max = 0;
+    Motors.SLIDES.forEach(function (s) {
+      Motors.STAGE_COUNTS.forEach(function (N) { max = Math.max(max, N * s.stroke); });
+    });
+    $('answer-tag').textContent = f(inp.extension, 0) + ' mm';
+    $('answer-body').innerHTML = '<div class="flag stall">No BWTLink stack reaches ' +
+      f(inp.extension, 0) + ' mm. The longest available is ' + f(max, 0) +
+      ' mm (5 &times; BL-400B-2M).</div>';
+    $('results').querySelector('tbody').innerHTML = '';
+    $('table-note').textContent = '';
+    $('table-card').hidden = true;
+    $('charts').hidden = true;
   }
 
   // ---------------------------------------------------------------- table
 
-  function renderTable(p, full) {
-    var stock = full.stock;
-    var rig = tableRig || stock.rigging || 'cascade';
-    var res = stock.byRigging[rig];
-
-    $('table-tag').textContent = rig.toUpperCase() + ' · ' + f(p.payload, 1) + ' kg';
-    document.querySelectorAll('#table-toggle button').forEach(function (btn) {
-      var on = btn.dataset.rig === rig;
-      btn.classList.toggle('on', on);
-      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-      btn.textContent = cap(btn.dataset.rig) +
-        (btn.dataset.rig === stock.rigging ? ' ✓' : '');
-    });
-
+  function renderTable(stock) {
     var tb = $('results').querySelector('tbody'), html = '';
-    var order = res.ranked.concat(res.rows.filter(function (r) { return r.stalled; }));
-
-    order.forEach(function (r) {
-      if (r.stalled) {
-        html += '<tr class="stalled"><td>&mdash;</td><td>' + esc(r.motor.name) +
-          '</td><td colspan="6">STALL at every pulley ' + f(p.d_min, 0) + '&ndash;' +
-          f(p.d_max, 0) + ' mm</td></tr>';
-        return;
-      }
-      var notes = [];
-      if (r.at_min) notes.push('<span class="pin">at d_min</span>');
-      if (r.at_max) notes.push('<span class="pin">at d_max</span>');
-      if (r.window[0] === r.window[1]) notes.push('<span class="pin">single-d window</span>');
-      if (r.best.I > p.I_port) notes.push('<span class="pin">over port limit</span>');
-      html += '<tr' + (r.rank === 1 ? ' class="winner"' : '') + '>' +
-        '<td>' + r.rank + '</td>' +
+    stock.rows.forEach(function (r) {
+      var win = stock.best && r.slide.model === stock.best.slide.model && r.N === stock.best.N;
+      html += '<tr' + (win ? ' class="winner"' : '') + '>' +
+        '<td>' + esc(r.slide.model) + ' <small>' + r.slide.nominal_in + ' in</small></td>' +
+        '<td>' + r.N + '</td>' +
+        '<td>' + f(r.height, 0) + ' mm</td>' +
+        '<td>' + r.n_motors + '</td>' +
         '<td>' + esc(r.motor.name) + '</td>' +
-        '<td>' + f(r.best_d, 0) + ' mm</td>' +
-        '<td>' + f(r.best_t, 4) + ' s</td>' +
-        '<td>' + f(100 * r.best.u, 1) + '%</td>' +
-        '<td>' + f(r.best.I, 2) + ' A</td>' +
-        '<td>' + f(r.window[0], 0) + '&ndash;' + f(r.window[1], 0) + ' mm</td>' +
-        '<td>' + (notes.join(' ') || '') + '</td></tr>';
+        '<td>' + cap(r.rigging) + '</td>' +
+        '<td>' + f(r.d, 0) + ' mm</td>' +
+        '<td>' + f(r.t, 4) + ' s</td>' +
+        '<td>' + f(r.leftover, 0) + ' mm</td></tr>';
     });
     tb.innerHTML = html;
-
     $('table-note').textContent =
-      'Direct drive (G_ext = 1). Torque used is the fraction of stall torque at the chosen ' +
-      'pulley; for continuous it is phase C, the phase carrying the whole stack. Rows marked ' +
-      '"at d_min" / "at d_max" are limited by the build range, not by the motor. ' +
-      'The tick marks the rigging the calculator chose.';
+      'One row per slide and stage count that reaches the extension, each showing its own best ' +
+      'build. Ranked fastest first; the highlighted row is Answer 1. Stroke spare is the travel ' +
+      'the stack has left over.';
   }
 
   // --------------------------------------------------------------- charts
 
-  function axes(xTitle, yTitle, xType) {
+  function axes(xTitle, yTitle) {
     var grid = getComputedStyle(document.body).getPropertyValue('--line').trim();
     var ink = getComputedStyle(document.body).getPropertyValue('--ink-2').trim();
     return {
-      x: { type: xType || 'linear', title: { display: true, text: xTitle, color: ink },
+      x: { type: 'linear', title: { display: true, text: xTitle, color: ink },
            grid: { color: grid }, ticks: { color: ink } },
       y: { title: { display: true, text: yTitle, color: ink }, beginAtZero: false,
            grid: { color: grid }, ticks: { color: ink } }
     };
   }
 
-  function draw(id, datasets, xTitle, yTitle, xType, xMin, xMax) {
+  function draw(id, datasets, xTitle, yTitle) {
     if (typeof Chart === 'undefined') return;
     var ink = getComputedStyle(document.body).getPropertyValue('--ink-2').trim();
-    var sc = axes(xTitle, yTitle, xType);
-    if (xMin !== undefined) { sc.x.min = xMin; sc.x.max = xMax; }
     if (charts[id]) {
       charts[id].data.datasets = datasets;
-      charts[id].options.scales = sc;
+      charts[id].options.scales = axes(xTitle, yTitle);
       charts[id].update('none');
       return;
     }
@@ -360,9 +194,7 @@
       type: 'line',
       data: { datasets: datasets },
       options: {
-        responsive: true, maintainAspectRatio: false,
-        animation: false,
-        parsing: false,
+        responsive: true, maintainAspectRatio: false, animation: false, parsing: false,
         interaction: { mode: 'nearest', axis: 'x', intersect: false },
         elements: { point: { radius: 0 }, line: { borderWidth: 2, tension: 0.15 } },
         plugins: {
@@ -371,104 +203,104 @@
             return c.dataset.label + ': ' + c.parsed.y.toFixed(4) + ' s';
           } } }
         },
-        scales: sc
+        scales: axes(xTitle, yTitle)
       }
     });
   }
 
-  // Charts 1 and 2: best time vs payload, one line per motor.
-  function loadChart(id, rigging, p, motors) {
-    var p1 = Physics.withParam(p, 'G_ext', 1);
-    var ds = motors.map(function (m, i) {
-      var pts = SWEEP.map(function (P) {
-        var s = Physics.sweepMotor(m, P, rigging, p1);
-        return s.stalled ? null : { x: P, y: s.best_t };
-      }).filter(Boolean);
+  // Both charts hold Answer 1's slide, stage count, motor count and rigging fixed
+  // and vary only the motor, so they answer "what if I used a different motor in
+  // this exact build".
+  function renderCharts(best, inp) {
+    var p = best.params;
+    var motors = Physics.deriveMotors(Motors.MOTORS, p);
+    var ds = Physics.diameters(p);
+    var label = best.N + ' × ' + best.slide.model + ' · ' +
+                motorWord(best.n_motors) + ' · ' + best.rigging;
+    $('chart1-tag').textContent = label;
+    $('chart2-tag').textContent = label + ' · ' + f(inp.payload, 1) + ' kg';
+
+    var loadSets = motors.map(function (m, i) {
+      var pts = [];
+      SWEEP.forEach(function (P) {
+        var bt = Infinity;
+        ds.forEach(function (d) {
+          var r = Physics.solve(m, d, P, best.rigging, p);
+          if (r && r.t < bt) bt = r.t;
+        });
+        if (isFinite(bt)) pts.push({ x: P, y: bt });
+      });
       return { label: m.name, data: pts, borderColor: COLORS[i], backgroundColor: COLORS[i] };
     });
-    draw(id, ds, 'Payload (kg)', 'Best extension time (s)');
-  }
+    draw('chart-load', loadSets, 'Payload (kg)', 'Best extension time (s)');
 
-  // Charts 3 and 4: time vs pulley diameter at the selected payload.
-  // Anything above CLIP x the chart minimum is dropped so the axis stays zoomed.
-  function diaChart(id, rigging, p, motors) {
-    var p1 = Physics.withParam(p, 'G_ext', 1);
     var series = motors.map(function (m, i) {
-      var s = Physics.sweepMotor(m, p.payload, rigging, p1);
-      return { name: m.name, ds: s.diameters, times: s.times, color: COLORS[i] };
+      return {
+        name: m.name, color: COLORS[i],
+        times: ds.map(function (d) {
+          var r = Physics.solve(m, d, inp.payload, best.rigging, p);
+          return r ? r.t : null;
+        })
+      };
     });
     var min = Infinity;
     series.forEach(function (s) {
       s.times.forEach(function (t) { if (t !== null && t < min) min = t; });
     });
     var ceiling = isFinite(min) ? CLIP * min : Infinity;
-
-    var ds = series.map(function (s) {
+    var diaSets = series.map(function (s) {
       var pts = [];
-      for (var j = 0; j < s.ds.length; j++) {
-        if (s.times[j] !== null && s.times[j] <= ceiling) pts.push({ x: s.ds[j], y: s.times[j] });
+      for (var j = 0; j < ds.length; j++) {
+        if (s.times[j] !== null && s.times[j] <= ceiling) pts.push({ x: ds[j], y: s.times[j] });
       }
       return { label: s.name, data: pts, borderColor: s.color, backgroundColor: s.color };
     });
-    draw(id, ds, 'Pulley diameter (mm)', 'Extension time (s)');
+    draw('chart-dia', diaSets, 'Pulley diameter (mm)', 'Extension time (s)');
   }
 
   // ---------------------------------------------------------------- render
 
   function render() {
-    var p = readParams();
-    var motors = Physics.deriveMotors(Motors.MOTORS, p);
-    var full = Physics.fullAnswer(p.payload, p, motors);
+    var inp = readInputs();
+    var me = ++runId;
+    if (gearedTimer) { clearTimeout(gearedTimer); gearedTimer = null; }
 
-    renderAnswer(p, full);
-    renderTable(p, full);
+    var stock = Physics.stockStack(inp.extension, inp.payload, inp.v_cap);
+    if (!stock.reachable || !stock.best) { renderUnreachable(inp); return; }
 
-    var lbl = f(p.payload, 1) + ' kg';
-    $('dia-tag-c').textContent = lbl;
-    $('dia-tag-k').textContent = lbl;
+    $('table-card').hidden = false;
+    $('charts').hidden = false;
+    $('answer-tag').textContent = f(inp.extension, 0) + ' mm · ' + f(inp.payload, 1) + ' kg' +
+      (inp.v_cap > 0 ? ' · cap ' + f(inp.v_cap, 2) + ' m/s' : '');
 
-    loadChart('chart-load-cascade', 'cascade', p, motors);
-    loadChart('chart-load-continuous', 'continuous', p, motors);
-    diaChart('chart-dia-cascade', 'cascade', p, motors);
-    diaChart('chart-dia-continuous', 'continuous', p, motors);
+    // Answer 1, the table and the charts are cheap - paint them now. The geared
+    // search sweeps 113 ratios across every stack, so it runs on the next tick
+    // and fills Answer 2 in when it lands.
+    $('answer-body').innerHTML = stockCard(stock.best, true) + gearedCard(null);
+    renderTable(stock);
+    renderCharts(stock.best, inp);
+
+    gearedTimer = setTimeout(function () {
+      if (me !== runId) return;                      // superseded by newer input
+      var full = Physics.stackAnswer(inp.extension, inp.payload, inp.v_cap);
+      if (me !== runId || !full.geared || !full.geared.best) return;
+      var gearedWins = full.geared.best.t < stock.best.t - 1e-9;
+      $('answer-body').innerHTML =
+        stockCard(stock.best, !gearedWins) + gearedCard(full, gearedWins);
+    }, 0);
+  }
+
+  function scheduleRender() {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(render, DEBOUNCE);
   }
 
   // ------------------------------------------------------------------ init
 
-  buildAdvanced();
-  writeInputs(D);
+  writeInputs(INPUT_DEFAULTS);
   if (typeof Chart === 'undefined') $('chartwarn').hidden = false;
-
-  // Changing N regenerates the drag grid and moves the idler counts to the new
-  // N+2 / N+3 defaults - but only if they were still sitting on the old defaults,
-  // so a deliberate override survives.
-  var lastN = D.N;
-  function onStageCountChanged(raw) {
-    var n = Math.min(Math.max(1, Math.round(parseFloat(raw))), N_MAX);
-    if (!isFinite(n) || n === lastN) return;
-    var keep = readAdvanced();
-    var oldIdler = Motors.defaultIdlers(lastN), newIdler = Motors.defaultIdlers(n);
-    if (parseFloat(keep.n_idler_c) === oldIdler.c) $('adv-n_idler_c').value = newIdler.c;
-    if (parseFloat(keep.n_idler_k) === oldIdler.k) $('adv-n_idler_k').value = newIdler.k;
-    buildDragFields(n, keep);
-    lastN = n;
-  }
-
   document.addEventListener('input', function (e) {
-    if (!e.target.matches('input')) return;
-    if (e.target.dataset.key === 'N') onStageCountChanged(e.target.value);
-    tableRig = null;
-    render();
+    if (e.target.matches('input')) scheduleRender();
   });
-  $('reset').addEventListener('click', function () {
-    tableRig = null; lastN = D.N; writeInputs(D); render();
-  });
-  $('table-toggle').addEventListener('click', function (e) {
-    var btn = e.target.closest('button[data-rig]');
-    if (!btn) return;
-    tableRig = btn.dataset.rig;
-    render();
-  });
-
   render();
 })();

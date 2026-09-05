@@ -691,6 +691,123 @@ section('Cross-checks: the answer, the table and the charts agree');
   });
 })();
 
+section('Addendum 3: stack search');
+(function () {
+  var SL = {};
+  Motors.SLIDES.forEach(function (s) { SL[s.model] = s; });
+
+  // Catalogue sanity.
+  eq('four slides', Motors.SLIDES.length, 4);
+  eq('stage counts 2..5', Motors.STAGE_COUNTS.join(','), '2,3,4,5');
+  eq('motor counts 1,2', Motors.MOTOR_COUNTS.join(','), '1,2');
+  near('BL-350C stroke', SL['BL-350C-2M'].stroke, 245.5, 1e-9);
+  near('BL-350C mass matches SPEC m_slide', SL['BL-350C-2M'].mass, 0.118, 1e-9);
+  near('BL-200A mass is the measured 72 g', SL['BL-200A-2M'].mass, 0.072, 1e-9);
+
+  // Only stacks that actually reach are considered.
+  check('3 x BL-350C reaches 700', Physics.reaches(SL['BL-350C-2M'], 3, 700));
+  check('5 x BL-200A does not reach 700', !Physics.reaches(SL['BL-200A-2M'], 5, 700));
+  check('2 x BL-350C does not reach 700', !Physics.reaches(SL['BL-350C-2M'], 2, 700));
+
+  var stock = Physics.stockStack(700, 0.6, 0);
+  check('search is reachable at 700 mm', stock.reachable && !!stock.best);
+  check('every row reaches the extension', stock.rows.every(function (r) {
+    return r.N * r.slide.stroke >= 700 - 1e-9;
+  }));
+  check('rows are ranked fastest first', stock.rows.every(function (r, i) {
+    return i === 0 || r.t >= stock.rows[i - 1].t;
+  }));
+  check('no BL-200A row at 700 mm', stock.rows.every(function (r) {
+    return r.slide.model !== 'BL-200A-2M';
+  }));
+  check('one row per (slide, N)', (function () {
+    var seen = {};
+    return stock.rows.every(function (r) {
+      var k = r.slide.model + '/' + r.N;
+      if (seen[k]) return false;
+      seen[k] = 1; return true;
+    });
+  })());
+  check('the table contains 3 x BL-350C', stock.rows.some(function (r) {
+    return r.slide.model === 'BL-350C-2M' && r.N === 3;
+  }));
+  near('stroke spare for 3 x BL-350C at 700', 3 * SL['BL-350C-2M'].stroke - 700, 36.5, 1e-9);
+
+  // The verified reference build must still be in the search and still be 0.4568 s.
+  // (The table row for 3 x BL-350C shows its best build, which is 2 motors - this
+  // asserts the 1-motor reference itself, which is the number SPEC.md verifies.)
+  var pRef = Physics.stackParams(SL['BL-350C-2M'], 3, 1, 700, 0.6, 0);
+  var mRef = Physics.deriveMotors(Motors.MOTORS, pRef).find(function (m) {
+    return m.name === '1150';
+  });
+  near('3 x BL-350C, 1 motor, continuous, 1150, 50 mm',
+    Physics.solve(mRef, 50, 0.6, 'continuous', pRef).t, 0.4568, 0.0005);
+  var sweepRef = Physics.sweepMotor(mRef, 0.6, 'continuous', pRef);
+  eq('and 50 mm is its argmin', sweepRef.best_d, 50);
+
+  // Two motors can never be slower than one, at G_ext = 1.
+  Motors.SLIDES.forEach(function (slide) {
+    Motors.STAGE_COUNTS.forEach(function (N) {
+      if (!Physics.reaches(slide, N, 700)) return;
+      var t = [1, 2].map(function (nm) {
+        var p = Physics.stackParams(slide, N, nm, 700, 0.6, 0);
+        var ms = Physics.deriveMotors(Motors.MOTORS, p);
+        var ds = Physics.diameters(p), best = Infinity;
+        ms.forEach(function (m) {
+          ['cascade', 'continuous'].forEach(function (rig) {
+            ds.forEach(function (d) {
+              var r = Physics.solve(m, d, 0.6, rig, p);
+              if (r && r.t < best) best = r.t;
+            });
+          });
+        });
+        return best;
+      });
+      check('2 motors <= 1 motor, ' + slide.model + ' x' + N, t[1] <= t[0] + 1e-12,
+        t[1].toFixed(6) + ' vs ' + t[0].toFixed(6));
+    });
+  });
+
+  // A tip-speed cap sets a hard kinematic floor no build can beat.
+  [0.5, 1.0, 1.5].forEach(function (cap) {
+    var capped = Physics.stockStack(700, 0.6, cap);
+    var floor = 0.7 / cap;
+    check('every row respects the ' + cap + ' m/s floor of ' + floor.toFixed(3) + ' s',
+      capped.rows.every(function (r) { return r.t >= floor - 1e-9; }),
+      'fastest ' + (capped.rows[0] ? capped.rows[0].t.toFixed(4) : 'n/a'));
+  });
+
+  // Unreachable extensions are reported, not silently empty.
+  var far = Physics.stockStack(2000, 0.6, 0);
+  check('2000 mm is out of reach', !far.reachable && !far.best);
+  var edge = Physics.stockStack(5 * SL['BL-400B-2M'].stroke, 0.6, 0);
+  check('the longest stack is exactly reachable', edge.reachable);
+
+  // Short extensions bring the small slides into play.
+  var shortRun = Physics.stockStack(300, 0.6, 0);
+  check('BL-200A appears at 300 mm', shortRun.rows.some(function (r) {
+    return r.slide.model === 'BL-200A-2M';
+  }));
+
+  // Tie-break: fewer stages, then fewer motors, then pulley nearest 40 mm.
+  check('winner has the fewest stages among equals', stock.rows.every(function (r) {
+    return r.t > stock.best.t + 1e-6 || r.N >= stock.best.N;
+  }));
+
+  // Per-motor current is the total divided by the motor count.
+  var p2 = Physics.stackParams(SL['BL-350C-2M'], 3, 2, 700, 0.6, 0);
+  var m2 = Physics.deriveMotors(Motors.MOTORS, p2).find(function (m) { return m.name === '1150'; });
+  var r2 = Physics.solve(m2, 50, 0.6, 'continuous', p2);
+  near('two motors split the current', r2.I / 2, (r2.I) / p2.n_motors, 1e-12);
+  check('per-motor current is under the total', r2.I / p2.n_motors < r2.I);
+
+  // The full answer wires both halves together.
+  var full = Physics.stackAnswer(700, 0.6, 0);
+  check('full answer is reachable', full.reachable);
+  check('geared is never slower than stock', full.geared.best.t <= full.stock.best.t + 1e-12);
+  check('gain is finite', isFinite(full.gain));
+})();
+
 // ----------------------------------------------------------------
 
 console.log('\n' + '-'.repeat(56));

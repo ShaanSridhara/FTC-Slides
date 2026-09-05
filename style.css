@@ -399,3 +399,8 @@ tr.stalled td { color: var(--ink-3); }
   vertical-align: 1px;
 }
 .teeth.dim { color: var(--ink-3); margin-top: 6px; }
+
+.ans.muted { opacity: 0.62; }
+.ans.pending .ans-head h3 { color: var(--ink-3); }
+.ans.pending { opacity: 0.55; }
+td small { color: var(--ink-3); font-size: 11px; }

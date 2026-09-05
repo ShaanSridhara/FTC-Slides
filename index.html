@@ -11,19 +11,18 @@
 <header class="masthead">
   <div class="wrap">
     <h1>FTC Vertical Linear Slide Calculator</h1>
-    <p class="sub">Fastest extension time, best motor, and best pulley diameter for a telescoping
-       lift of any stage count, computed from measured slide data. Rigging is chosen for you.
-       Measurements and equations in <a href="SPEC.md">SPEC.md</a>.</p>
+    <p class="sub">Tell it how far you need to extend and what you are lifting. It searches every
+       BWTLink slide, stage count, motor count, motor, rigging and pulley diameter, and returns
+       the fastest build.</p>
   </div>
 </header>
 
 <main class="wrap">
 
-  <!-- ------------------------------------------------------------ inputs -->
   <section class="card inputs">
     <div class="field">
-      <label for="travel">Travel</label>
-      <div class="ctl"><input id="travel" type="number" step="10" min="1"><span class="unit">mm</span></div>
+      <label for="extension">Extension needed</label>
+      <div class="ctl"><input id="extension" type="number" step="10" min="1"><span class="unit">mm</span></div>
     </div>
     <div class="field">
       <label for="payload">Payload</label>
@@ -34,37 +33,21 @@
       <div class="ctl"><input id="v_cap" type="number" step="0.1" min="0"><span class="unit">m/s</span></div>
       <p class="hint">0 = uncapped</p>
     </div>
-    <div class="field reset-field">
-      <button id="reset" type="button" class="ghost">Reset defaults</button>
-    </div>
   </section>
 
-  <!-- ---------------------------------------------------------- advanced -->
-  <details class="card advanced" id="advanced">
-    <summary>Advanced &mdash; every measured constant</summary>
-    <div id="advanced-body" class="adv-body"></div>
-  </details>
-
-  <!-- ------------------------------------------------------------ answer -->
   <section class="card answer" id="answer">
     <h2 class="card-title">Answer <span class="tag" id="answer-tag"></span></h2>
-    <div id="rigging-line" class="rigging-line"></div>
     <div id="answer-body" class="answers"></div>
   </section>
 
-  <!-- ------------------------------------------------------------- table -->
-  <section class="card">
-    <h2 class="card-title">Every motor <span class="tag" id="table-tag"></span></h2>
-    <div class="seg" id="table-toggle" role="group" aria-label="Which rigging to table">
-      <button type="button" data-rig="cascade">Cascade</button>
-      <button type="button" data-rig="continuous">Continuous</button>
-    </div>
+  <section class="card" id="table-card">
+    <h2 class="card-title">Every stack that reaches it</h2>
     <div class="table-scroll">
       <table id="results">
         <thead>
           <tr>
-            <th>Rank</th><th>Motor</th><th>Best pulley</th><th>Time</th>
-            <th>Torque used</th><th>Current</th><th>&plusmn;5% window</th><th>Note</th>
+            <th>Slide</th><th>Stages</th><th>Stack height</th><th>Motors</th>
+            <th>Motor</th><th>Rigging</th><th>Pulley</th><th>Time</th><th>Stroke spare</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -73,37 +56,21 @@
     <p class="hint" id="table-note"></p>
   </section>
 
-  <!-- ------------------------------------------------------------ charts -->
-  <section class="charts">
+  <section class="charts" id="charts">
     <div class="card chart-card">
-      <h2 class="card-title">Best time vs payload &mdash; CASCADE</h2>
-      <div class="chart-box"><canvas id="chart-load-cascade"></canvas></div>
+      <h2 class="card-title">Best time vs payload <span class="tag" id="chart1-tag"></span></h2>
+      <div class="chart-box"><canvas id="chart-load"></canvas></div>
     </div>
     <div class="card chart-card">
-      <h2 class="card-title">Best time vs payload &mdash; CONTINUOUS</h2>
-      <div class="chart-box"><canvas id="chart-load-continuous"></canvas></div>
-    </div>
-    <div class="card chart-card">
-      <h2 class="card-title">Time vs pulley diameter &mdash; CASCADE <span class="tag" id="dia-tag-c"></span></h2>
-      <div class="chart-box"><canvas id="chart-dia-cascade"></canvas></div>
-      <p class="hint">Values above 1.6&times; this chart&rsquo;s best are hidden so the axis stays readable.</p>
-    </div>
-    <div class="card chart-card">
-      <h2 class="card-title">Time vs pulley diameter &mdash; CONTINUOUS <span class="tag" id="dia-tag-k"></span></h2>
-      <div class="chart-box"><canvas id="chart-dia-continuous"></canvas></div>
-      <p class="hint">Values above 1.6&times; this chart&rsquo;s best are hidden so the axis stays readable.</p>
+      <h2 class="card-title">Time vs pulley diameter <span class="tag" id="chart2-tag"></span></h2>
+      <div class="chart-box"><canvas id="chart-dia"></canvas></div>
+      <p class="hint">Values above 1.6&times; the best are hidden so the axis stays readable.</p>
     </div>
   </section>
 
   <p id="chartwarn" class="warn" hidden>
     Charts need Chart.js from the CDN, which did not load. The numbers above are unaffected.
   </p>
-
-  <footer class="foot">
-    <p>Extension times are computed from the measured slide, drag and motor data in
-       <a href="SPEC.md">SPEC.md</a>, swept across every buildable pulley diameter and both
-       riggings. Change any measurement under Advanced and everything recomputes.</p>
-  </footer>
 
 </main>
 

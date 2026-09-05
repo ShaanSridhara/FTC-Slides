@@ -75,10 +75,23 @@
   DEFAULTS.n_idler_c = defaultIdlers(DEFAULTS.N).c;
   DEFAULTS.n_idler_k = defaultIdlers(DEFAULTS.N).k;
 
+  // BWTLink slide catalogue. stroke = travel per slide, mass = mass per slide
+  // including its 2 slide pulley modules (same convention as m_slide in SPEC.md).
+  var SLIDES = [
+    { model: 'BL-200A-2M', nominal_in: 8,  nominal_mm: 203.2, stroke: 121,   mass: 0.072 },
+    { model: 'BL-300C-2M', nominal_in: 12, nominal_mm: 304.8, stroke: 205,   mass: 0.101 },
+    { model: 'BL-350C-2M', nominal_in: 14, nominal_mm: 355.6, stroke: 245.5, mass: 0.118 },
+    { model: 'BL-400B-2M', nominal_in: 16, nominal_mm: 406.4, stroke: 283,   mass: 0.130 }
+  ];
+
+  var STAGE_COUNTS = [2, 3, 4, 5];
+  var MOTOR_COUNTS = [1, 2];
+
   var PAYLOAD_SWEEP = [0, 0.2, 0.4, 0.6, 0.8, 1.0];
 
   return {
     MOTORS: MOTORS, DEFAULTS: DEFAULTS, PAYLOAD_SWEEP: PAYLOAD_SWEEP,
+    SLIDES: SLIDES, STAGE_COUNTS: STAGE_COUNTS, MOTOR_COUNTS: MOTOR_COUNTS,
     defaultDrag: defaultDrag, defaultIdlers: defaultIdlers
   };
 });
