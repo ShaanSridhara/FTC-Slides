@@ -4,8 +4,8 @@
 
   var DEBOUNCE = 200;     // ms
 
-  var INPUT_DEFAULTS = { extension: 700, payload: 0.6 };
-  var N_MOTORS_DEFAULT = 2;
+  var INPUT_DEFAULTS = { extension: 700, payload: 0.6, n_motors: 2 };
+  var N_MOTORS_MAX = 8;
   var V_CAP = 0;          // uncapped; the end-stop ramp is what limits arrival speed
 
   var $ = function (id) { return document.getElementById(id); };
@@ -32,13 +32,12 @@
     });
     v.extension = Math.max(1, v.extension);
     v.payload = Math.max(0, v.payload);
-    v.n_motors = parseInt($('n_motors').value, 10) === 1 ? 1 : 2;
+    v.n_motors = Math.min(Math.max(1, Math.round(v.n_motors)), N_MOTORS_MAX);
     return v;
   }
 
   function writeInputs(v) {
     Object.keys(INPUT_DEFAULTS).forEach(function (k) { $(k).value = v[k]; });
-    $('n_motors').value = String(N_MOTORS_DEFAULT);
   }
 
   // --------------------------------------------------------------- answer
@@ -49,7 +48,7 @@
   }
 
   function buildStats(c) {
-    return stat('Slide', esc(c.slide.model), c.slide.nominal_in + ' in') +
+    return stat('Slide', c.slide.nominal_in + ' in', esc(c.slide.model)) +
       stat('Stages', c.N, '') +
       stat('Motors', c.n_motors, esc(c.motor.name) + ' RPM') +
       stat('Rigging', cap(c.rigging), '') +
@@ -87,7 +86,7 @@
         '<p class="ans-sub">Direct drive, no external gearing</p></div>' +
       '<div class="answer-head">' +
         '<div class="headline">' + best.N + ' &times; <strong>' +
-          esc(best.slide.model) + '</strong></div>' +
+          best.slide.nominal_in + ' in</strong></div>' +
         '<div class="headline">Pulley <strong class="big">' + f(best.d, 0) + '</strong> mm</div>' +
         '<div class="headline">In <strong class="big">' + f(best.t, 3) + '</strong> s</div>' +
       '</div>' +
@@ -125,14 +124,16 @@
   }
 
   function renderUnreachable(inp) {
-    var max = 0;
+    var max = 0, longest = Motors.SLIDES[0];
     Motors.SLIDES.forEach(function (s) {
+      if (s.stroke > longest.stroke) longest = s;
       Motors.STAGE_COUNTS.forEach(function (N) { max = Math.max(max, N * s.stroke); });
     });
     $('answer-tag').textContent = f(inp.extension, 0) + ' mm';
     $('answer-body').innerHTML = '<div class="flag stall">No BWTLink stack reaches ' +
       f(inp.extension, 0) + ' mm. The longest available is ' + f(max, 0) +
-      ' mm (' + Math.max.apply(null, Motors.STAGE_COUNTS) + ' &times; BL-400B-2M).</div>';
+      ' mm (' + Math.max.apply(null, Motors.STAGE_COUNTS) + ' &times; ' + longest.nominal_in +
+      ' in).</div>';
     $('results').querySelector('tbody').innerHTML = '';
     $('table-note').textContent = '';
     $('table-card').hidden = true;
@@ -145,7 +146,7 @@
     stock.rows.forEach(function (r) {
       var win = stock.best && r.slide.model === stock.best.slide.model && r.N === stock.best.N;
       html += '<tr' + (win ? ' class="winner"' : '') + '>' +
-        '<td>' + esc(r.slide.model) + ' <small>' + r.slide.nominal_in + ' in</small></td>' +
+        '<td>' + r.slide.nominal_in + ' in <small>' + esc(r.slide.model) + '</small></td>' +
         '<td>' + r.N + '</td>' +
         '<td>' + f(r.height, 0) + ' mm</td>' +
         '<td>' + r.n_motors + '</td>' +
@@ -202,9 +203,6 @@
   writeInputs(INPUT_DEFAULTS);
   document.addEventListener('input', function (e) {
     if (e.target.matches('input')) scheduleRender();
-  });
-  document.addEventListener('change', function (e) {
-    if (e.target.matches('select')) scheduleRender();
   });
   render();
 })();
