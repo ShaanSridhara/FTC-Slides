@@ -57,9 +57,7 @@
       stat('Rigging', cap(c.rigging), '') +
       stat('Pulley window', f(c.window[0], 0) + '&ndash;' + f(c.window[1], 0), 'mm') +
       stat('Retracted height', f(c.height, 0), 'mm') +
-      stat('Stroke spare', f(c.leftover, 0), 'mm') +
-      stat('Torque used', f(100 * c.res.u, 1), '% of stall') +
-      stat('End-stop impact', f(c.res.v_impact, 2), 'm/s');
+      stat('Stroke spare', f(c.leftover, 0), 'mm');
   }
 
   function warnings(c) {
