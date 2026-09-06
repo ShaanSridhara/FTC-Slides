@@ -4,8 +4,9 @@
 
   var DEBOUNCE = 200;     // ms
 
-  var INPUT_DEFAULTS = { extension: 700, payload: 0.6, n_motors: 2 };
+  var INPUT_DEFAULTS = { extension: 700, payload: 0.6, n_stacks: 2, n_motors: 2 };
   var N_MOTORS_MAX = 8;
+  var N_STACKS_MAX = 4;
   var V_CAP = 0;          // uncapped; the end-stop ramp is what limits arrival speed
 
   var $ = function (id) { return document.getElementById(id); };
@@ -33,6 +34,7 @@
     v.extension = Math.max(1, v.extension);
     v.payload = Math.max(0, v.payload);
     v.n_motors = Math.min(Math.max(1, Math.round(v.n_motors)), N_MOTORS_MAX);
+    v.n_stacks = Math.min(Math.max(1, Math.round(v.n_stacks)), N_STACKS_MAX);
     return v;
   }
 
@@ -49,7 +51,8 @@
 
   function buildStats(c) {
     return stat('Slide', c.slide.nominal_in + ' in', esc(c.slide.model)) +
-      stat('Stages', c.N, '') +
+      stat('Stages', c.N, c.params.n_stacks > 1 ? 'per tower' : '') +
+      stat('Stacks', c.params.n_stacks, '') +
       stat('Motors', c.n_motors, esc(c.motor.name) + ' RPM') +
       stat('Rigging', cap(c.rigging), '') +
       stat('Pulley window', f(c.window[0], 0) + '&ndash;' + f(c.window[1], 0), 'mm') +
@@ -170,12 +173,12 @@
     var me = ++runId;
     if (gearedTimer) { clearTimeout(gearedTimer); gearedTimer = null; }
 
-    var stock = Physics.stockStack(inp.extension, inp.payload, V_CAP, inp.n_motors);
+    var stock = Physics.stockStack(inp.extension, inp.payload, V_CAP, inp.n_motors, inp.n_stacks);
     if (!stock.reachable || !stock.best) { renderUnreachable(inp); return; }
 
     $('table-card').hidden = false;
     $('answer-tag').textContent = f(inp.extension, 0) + ' mm · ' + f(inp.payload, 1) + ' kg · ' +
-      motorWord(inp.n_motors);
+      inp.n_stacks + (inp.n_stacks === 1 ? ' stack · ' : ' stacks · ') + motorWord(inp.n_motors);
 
     // Answer 1 and the table are cheap - paint them now. The geared search sweeps
     // 113 ratios across every stack, so it runs on the next tick and fills
@@ -185,7 +188,7 @@
 
     gearedTimer = setTimeout(function () {
       if (me !== runId) return;                      // superseded by newer input
-      var full = Physics.stackAnswer(inp.extension, inp.payload, V_CAP, inp.n_motors);
+      var full = Physics.stackAnswer(inp.extension, inp.payload, V_CAP, inp.n_motors, inp.n_stacks);
       if (me !== runId || !full.geared || !full.geared.best) return;
       var gearedWins = full.geared.best.t < stock.best.t - 1e-9;
       $('answer-body').innerHTML =

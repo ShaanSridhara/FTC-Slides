@@ -1,8 +1,8 @@
 # FTC Vertical Linear Slide Calculator
 
-Tell it how far you need to extend, what you are lifting, and how many motors you have. It
-searches every BWTLink slide, stage count, motor, rigging and pulley diameter, and returns the
-fastest build. Three inputs, no knobs.
+Tell it how far you need to extend, what you are lifting, and how many slide towers and motors you
+have. It searches every BWTLink slide, stage count, motor, rigging and pulley diameter, and returns
+the fastest build. Four inputs, no knobs.
 
 **Live:** https://shaansridhara.github.io/FTC-Slides/
 
@@ -12,7 +12,8 @@ fastest build. Three inputs, no knobs.
 |---|---|
 | slide | BL-200A-2M (8 in, 121 mm stroke), BL-300C-2M (12 in, 205), BL-350C-2M (14 in, 245.5), BL-400B-2M (16 in, 283) |
 | stages | 2, 3, 4 — only combinations where `N × stroke ≥ extension`. Capped at 4: a fifth stage is more rigging, drag and slop than the fraction of a second it buys. |
-| motors | set by you, 1 or 2 |
+| motors | set by you, 1-8 total across all towers |
+| slide towers | set by you, 1-4. Two is the usual left-and-right lift. |
 | motor | the six goBILDA Yellow Jackets |
 | rigging | cascade and continuous, both always |
 | pulley | 33-point grid, 16–80 mm |
@@ -31,20 +32,22 @@ asked for, not the stack's maximum, and the drag ramp and idler counts regenerat
 
 ## Calibration
 
-**Drag calibration factor: `drag_cal = 15.964`.**
+**Drag calibration factor: `drag_cal = 6.472`** (per tower, before `n_stacks`).
 
 The only measured full-system data point is FTC team The Clueless: 708.4 mm in ~0.515 s on two
 435 RPM motors with belt overdrive. Running that configuration — 700 mm, 0.3 kg, 2 motors, 435,
-external ratio free, 3 stages, uncapped — the model returned **0.3159 s** at `drag_cal = 1`, i.e.
-39% too fast. Scaling every `d_i` by one common factor of **15.964** lands it on **0.5150 s**,
-inside the ±0.01 s target.
+external ratio free, 3 stages, **2 towers**, uncapped — and scaling every `d_i` by one common
+factor, **6.472** lands it on **0.5150 s**, inside the ±0.01 s target.
 
-That factor is large. Total drag goes from 2.40 N to **38.31 N** (d1/d2/d3 = 15.96 / 12.77 /
-9.58 N). It is doing more than modelling friction — it is absorbing everything between this model
-and a real robot on a real field, fitted to a single data point. Treat the drag figures as a
-fitted parameter, not a measurement, and treat absolute times with corresponding caution. A second
-measured point from a different stack would say a great deal about whether 15.964 is friction or a
-catch-all.
+This was refitted when `n_stacks` arrived. Against a single-tower model the same anchor needed
+**15.964**; carrying the second tower's mass and its second set of sliding interfaces absorbed most
+of that, and the factor fell to 6.472 — total drag 31.07 N across both towers rather than 38.31 N
+in one. That the number moved by 2.5× on a modelling change, not a measurement, is worth
+remembering.
+
+It is still a fitted parameter, not a measurement, and still rests on one data point. Treat
+absolute times with corresponding caution. A second measured point from a different stack would say
+a great deal about how much of 6.472 is friction and how much is catch-all.
 
 Two consequences worth knowing:
 
@@ -104,7 +107,7 @@ without a network connection the numbers still work and the charts are skipped.
 node tests/physics.test.js
 ```
 
-666 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
+682 assertions covering every cell of the four reference tables (±0.002 s / ±2 mm), the spot
 checks, the stall diameters, the tip-speed-cap cases, the two external validation points
 (the goBILDA Viper-Slide kit and FTC team The Clueless), the section 8 modelling guards, and the
 addendum's rigging pick and gearing optimizer. It also cross-checks that the answer block, the

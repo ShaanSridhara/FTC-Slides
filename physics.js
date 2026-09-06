@@ -25,9 +25,14 @@
 
     // Every stage below the top is an inner rail plus the outer rail of the stage
     // above, so it carries a full slide; the top stage is inner rail only.
+    // A lift usually runs two parallel towers, so every stage mass and every
+    // sliding interface is multiplied by n_stacks. The carriage and the payload
+    // are shared across the towers and are added once, in the force terms.
+    var stacks = Math.max(1, Math.round(p.n_stacks || 1));
+    p.n_stacks = stacks;
     p.masses = [];
     for (i = 1; i <= p.N; i++) {
-      var mi = (i < p.N) ? p.m_slide + p.m_hw : p.m_slide * p.f_inner + p.m_hw;
+      var mi = stacks * ((i < p.N) ? p.m_slide + p.m_hw : p.m_slide * p.f_inner + p.m_hw);
       p.masses.push(mi);
       p['m' + i] = mi;                              // m1..mN, also handy for callers
     }
@@ -36,13 +41,14 @@
     // ramp, so raising N does not leave the new interfaces undefined.
     p.drags = [];
     p.d_tot = 0;
+    var cal = (isFinite(p.drag_cal) ? p.drag_cal : 1);
     for (i = 1; i <= p.N; i++) {
       var di = p['d' + i];
       if (!isFinite(di)) di = Motors.defaultDrag(i);
-      di *= (isFinite(p.drag_cal) ? p.drag_cal : 1);   // calibration scale
-      p.drags.push(di);
-      p['d' + i] = di;
-      p.d_tot += di;
+      p['d' + i] = di;                    // stays the raw per-tower figure, so that
+      var scaled = di * cal * stacks;     // re-deriving a derived params is a no-op
+      p.drags.push(scaled);
+      p.d_tot += scaled;
     }
 
     if (!isFinite(p.n_idler_c)) p.n_idler_c = Motors.defaultIdlers(p.N).c;
@@ -536,7 +542,7 @@
 
   // Parameters for one (slide, N, motor count). The drag ramp and idler counts
   // regenerate from N; travel is the extension asked for, not the stack maximum.
-  function stackParams(slide, N, n_motors, extension, payload, v_cap) {
+  function stackParams(slide, N, n_motors, extension, payload, v_cap, n_stacks) {
     var raw = {}, i;
     for (var k in Motors.DEFAULTS) raw[k] = Motors.DEFAULTS[k];
     for (i = 1; i <= 12; i++) delete raw['d' + i];
@@ -545,6 +551,7 @@
     raw.m_slide = slide.mass;
     raw.N = N;
     raw.n_motors = n_motors;
+    if (n_stacks) raw.n_stacks = n_stacks;
     raw.travel = extension;
     raw.payload = payload;
     raw.v_cap = v_cap;
@@ -591,7 +598,7 @@
   // Every (slide, N) that reaches the extension, best build for each, plus the
   // outright winner. grid is [1] for the stock search. `nMotors`, if given, pins
   // the search to that many motors instead of searching 1 and 2.
-  function searchStacks(extension, payload, v_cap, grid, nMotors) {
+  function searchStacks(extension, payload, v_cap, grid, nMotors, nStacks) {
     var rows = [], best = null, reachable = false;
 
     Motors.SLIDES.forEach(function (slide) {
@@ -602,7 +609,7 @@
 
         var counts = nMotors ? [nMotors] : Motors.MOTOR_COUNTS;
         counts.forEach(function (nm) {
-          var base = stackParams(slide, N, nm, extension, payload, v_cap);
+          var base = stackParams(slide, N, nm, extension, payload, v_cap, nStacks);
           var ms = deriveMotors(Motors.MOTORS, base);
           var ds = diameters(base);
 
@@ -635,13 +642,13 @@
     return { rows: rows, best: best, reachable: reachable };
   }
 
-  function stockStack(extension, payload, v_cap, nMotors) {
-    return searchStacks(extension, payload, v_cap, [1], nMotors);
+  function stockStack(extension, payload, v_cap, nMotors, nStacks) {
+    return searchStacks(extension, payload, v_cap, [1], nMotors, nStacks);
   }
 
-  function gearedStack(extension, payload, v_cap, nMotors, gridOverride) {
+  function gearedStack(extension, payload, v_cap, nMotors, nStacks, gridOverride) {
     var grid = gridOverride || gearGrid(deriveParams(Motors.DEFAULTS));
-    var out = searchStacks(extension, payload, v_cap, grid, nMotors);
+    var out = searchStacks(extension, payload, v_cap, grid, nMotors, nStacks);
     if (out.best) {
       out.rpm_equiv = out.best.motor.rpm_free / out.best.G_ext;
       out.teeth = out.best.G_ext === 1 ? null : nearestToothPair(out.best.G_ext);
@@ -650,13 +657,13 @@
   }
 
   // Everything the page needs for one set of inputs.
-  function stackAnswer(extension, payload, v_cap, nMotors) {
-    var stock = stockStack(extension, payload, v_cap, nMotors);
+  function stackAnswer(extension, payload, v_cap, nMotors, nStacks) {
+    var stock = stockStack(extension, payload, v_cap, nMotors, nStacks);
     if (!stock.reachable || !stock.best) {
       return { reachable: stock.reachable, stock: stock, geared: null,
                gain: null, gearingHelps: false };
     }
-    var geared = gearedStack(extension, payload, v_cap, nMotors);
+    var geared = gearedStack(extension, payload, v_cap, nMotors, nStacks);
     var gain = geared.best ? 100 * (stock.best.t - geared.best.t) / stock.best.t : null;
     return {
       reachable: true, stock: stock, geared: geared, gain: gain,

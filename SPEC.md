@@ -60,7 +60,9 @@ Sweep payload over 0, 0.2, 0.4, 0.6, 0.8, 1.0 for the charts.
 
 ## 2. CONSTANTS / DEFAULTS (all overridable)
 
-Geometry and masses (single stack, BWTLink BL-350C-2M, 3 stages, no claw):
+Geometry and masses (BWTLink BL-350C-2M, 3 stages, no claw). The figures below are PER TOWER;
+n_stacks (default 2) multiplies every stage mass and every sliding interface. The carriage and
+the payload are shared across towers and counted once:
 
 | symbol | value | unit | notes |
 |---|---|---|---|
@@ -229,29 +231,29 @@ External:
 - FTC team The Clueless (CENTERSTAGE): 708.4 mm in <0.515 s with two 435s on belt overdrive = 1.376 m/s avg. Model, one 435, 700 mm, capped 1.5 m/s: 1.426 m/s avg. 3.7% apart.
 
 Internal reference outputs — defaults above, travel 700, v_cap 0 (physics ceiling), one motor.
-RECOMPUTED for ADDENDUM 4: end-stop deceleration, velocity-dependent drag, and the drag
-calibration factor of 15.964. These supersede the original workbook figures and are model output,
+RECOMPUTED for ADDENDUM 4: end-stop deceleration, velocity-dependent drag, two parallel slide
+towers (n_stacks = 2), and the refitted drag calibration factor of 6.472. These supersede the original workbook figures and are model output,
 not independently verified data. STALL means no buildable pulley lifts the load.
 Columns: 1620, 1150, 435, 312, 223, 117.
 
 BEST EXTENSION TIME (s), CASCADE
 ```
 kg   1620    1150    435     312     223     117
-0.0  1.8846  0.7568  0.7264  0.7647  0.7038  0.7622
-0.2  31.4331  0.9358  0.7942  0.8399  0.7693  0.8138
-0.4  STALL   1.2266  0.8657  0.9191  0.8346  0.8783
-0.6  STALL   1.7568  0.9397  0.9983  0.9053  0.9511
-0.8  STALL   3.1102  1.0137  1.0771  0.9757  1.0254
-1.0  STALL   15.9686  1.0851  1.1552  1.0457  1.0997
+0.0  1.8409  0.7524  0.7212  0.7588  0.6991  0.7579
+0.2  17.7891  0.9200  0.7886  0.8316  0.7639  0.8078
+0.4  STALL   1.1960  0.8578  0.9100  0.8269  0.8705
+0.6  STALL   1.6935  0.9317  0.9888  0.8974  0.9424
+0.8  STALL   2.9327  1.0045  1.0674  0.9673  1.0167
+1.0  STALL   12.9184  1.0763  1.1456  1.0377  1.0910
 ```
 BEST EXTENSION TIME (s), CONTINUOUS
 ```
-0.0  0.9851  0.9424  0.9999  1.0583  1.1255  1.6841
-0.2  1.0593  1.0150  1.0773  1.1297  1.1642  1.7096
-0.4  1.1268  1.0824  1.1501  1.2057  1.2050  1.7357
-0.6  1.1975  1.1461  1.2202  1.2797  1.2480  1.7627
-0.8  1.2752  1.2081  1.2884  1.3522  1.2935  1.7904
-1.0  1.3617  1.2709  1.3560  1.4237  1.3417  1.8189
+0.0  0.9839  0.9417  0.9956  1.0494  1.1172  1.6780
+0.2  1.0539  1.0101  1.0690  1.1196  1.1554  1.7033
+0.4  1.1181  1.0746  1.1398  1.1940  1.1956  1.7294
+0.6  1.1874  1.1363  1.2085  1.2669  1.2381  1.7562
+0.8  1.2638  1.1974  1.2759  1.3387  1.2831  1.7837
+1.0  1.3489  1.2592  1.3429  1.4098  1.3308  1.8122
 ```
 BEST PULLEY DIA (mm), CASCADE
 ```
@@ -260,21 +262,21 @@ BEST PULLEY DIA (mm), CASCADE
 0.4  STALL   16      22      30      46      80
 0.6  STALL   16      20      28      42      78
 0.8  STALL   16      20      26      40      72
-1.0  STALL   16      18      24      36      66
+1.0  STALL   16      18      24      36      68
 ```
 BEST PULLEY DIA (mm), CONTINUOUS
 ```
-0.0  20      28      70      80      80      80
-0.2  18      26      62      80      80      80
+0.0  18      28      68      80      80      80
+0.2  18      24      62      80      80      80
 0.4  16      24      58      76      80      80
 0.6  16      22      54      70      80      80
 0.8  16      20      50      66      80      80
-1.0  16      20      46      62      80      80
+1.0  16      20      48      62      80      80
 ```
-Spot checks (cascade, 0.6 kg): 1150 @16 mm -> u=0.860, I=8.12 A, window 16–16. 435 @20 mm -> u=0.463, I=4.52 A, window 16–24. 223 @42 mm -> window 34–52.
-Spot check (cascade 1150, 1.0 kg): F=76.177 N at zero sliding speed. Only the 16 mm pulley still lifts, at t=15.97 s (d_stall = 16.30 mm).
-Stall diameter formula: `d_stall = 2000*eta*T_s*G_ext/F - d_string` -> at 1 kg: casc435 39, casc1150 16, cont435 98, cont1150 41.
-With v_cap = 1.5, cascade 0.6 kg: 435 -> 0.940 @20, 223 -> 0.905 @42 — identical to the uncapped values, because after calibration nothing reaches 1.5 m/s.
+Spot checks (cascade, 0.6 kg): 1150 @16 mm -> u=0.853, I=8.05 A, window 16–16. 435 @20 mm -> u=0.456, I=4.45 A, window 16–26. 223 @42 mm -> window 34–52.
+Spot check (cascade 1150, 1.0 kg): F=75.902 N at zero sliding speed. Only the 16 mm pulley still lifts, at t=12.92 s (d_stall = 16.36 mm).
+Stall diameter formula: `d_stall = 2000*eta*T_s*G_ext/F - d_string` -> at 1 kg: casc435 40, casc1150 16, cont435 95, cont1150 40.
+With v_cap = 1.5, cascade 0.6 kg: 435 -> 0.932 @20, 223 -> 0.897 @42 — identical to the uncapped values, because after calibration nothing reaches 1.5 m/s.
 
 ---
 

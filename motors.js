@@ -30,6 +30,7 @@
 
     // --- geometry and masses ---
     N: 3,                 // stages
+    n_stacks: 2,          // parallel slide towers, left and right
     m_slide: 0.118,       // kg per slide, incl 2 pulley modules
     f_inner: 0.5,         // fraction of slide mass in the moving inner rail
     m_hw: 0.030,          // kg extra hardware per moving stage
@@ -39,7 +40,7 @@
 
     // --- sliding drag model ---
     k_v: 0.5,             // s/m, drag rises as d_i * (1 + k_v * sliding speed)
-    drag_cal: 15.964,     // see CALIBRATION note below
+    drag_cal: 6.472,      // see CALIBRATION note below
 
     // --- end-stop deceleration ---
     d_stop: 60,           // mm of stage travel given over to the decel ramp
@@ -76,14 +77,16 @@
   // CALIBRATION
   // The only measured full-system data point is FTC team The Clueless: 708.4 mm
   // in ~0.515 s on two 435 RPM motors with belt overdrive. Running that config
-  // (700 mm, 0.3 kg, 2 motors, 435, G_ext free, 3 stages, uncapped) the model
-  // returned 0.3159 s at drag_cal = 1 - 39% too fast. Scaling every d_i by one
-  // common factor of 15.964 lands it on 0.5150 s.
+  // (700 mm, 0.3 kg, 2 motors, 435, G_ext free, 3 stages, 2 stacks, uncapped)
+  // and scaling every d_i by one common factor, 6.472 lands it on 0.5150 s.
   //
-  // That factor is large: total drag goes from 2.40 N to 38.31 N. It is doing
-  // more than modelling friction - it is absorbing everything between this model
-  // and a real robot on a real field, on the strength of one data point. Treat
-  // the drag figures as a fitted parameter, not a measurement.
+  // Refitted when n_stacks arrived. Against a single-tower model the same anchor
+  // needed 15.964; carrying the second tower's mass and its second set of sliding
+  // interfaces absorbed most of that, and the factor fell to 6.472. Total drag
+  // across both towers is 31.07 N.
+  //
+  // It is still a fitted parameter, not a measurement, and still rests on one
+  // data point. Treat absolute times accordingly.
 
   // Per-interface sliding drag, falling toward the top of the stack but never
   // below 0.4 N. i is 1-based: interface 1 is base-to-stage-1.

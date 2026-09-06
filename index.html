@@ -11,9 +11,9 @@
 <header class="masthead">
   <div class="wrap">
     <h1>FTC Vertical Linear Slide Calculator</h1>
-    <p class="sub">Tell it how far you need to extend, what you are lifting, and how many motors
-       you have. It searches every BWTLink slide, stage count, motor, rigging and pulley diameter,
-       and returns the fastest build.</p>
+    <p class="sub">Tell it how far you need to extend, what you are lifting, and how many slide
+       towers and motors you have. It searches every BWTLink slide, stage count, motor, rigging and
+       pulley diameter, and returns the fastest build.</p>
   </div>
 </header>
 
@@ -29,8 +29,14 @@
       <div class="ctl"><input id="payload" type="number" step="0.1" min="0"><span class="unit">kg</span></div>
     </div>
     <div class="field">
+      <label for="n_stacks">Slide stacks</label>
+      <div class="ctl"><input id="n_stacks" type="number" step="1" min="1" max="4"></div>
+      <p class="hint">towers, e.g. 2 for left and right</p>
+    </div>
+    <div class="field">
       <label for="n_motors">Motors</label>
       <div class="ctl"><input id="n_motors" type="number" step="1" min="1" max="8"></div>
+      <p class="hint">total, across all towers</p>
     </div>
   </section>
 

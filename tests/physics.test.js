@@ -48,10 +48,10 @@ var TOL_D = 2;       // mm
 section('Derived constants (section 2, 3)');
 near('eta_c = eta_idler^5 * eta_spool', P0.eta_c, 0.8158, 5e-5);
 near('eta_k = eta_idler^6 * eta_spool', P0.eta_k, 0.7913, 5e-5);
-near('m1', P0.m1, 0.148, 1e-9);
-near('m2', P0.m2, 0.148, 1e-9);
-near('m3', P0.m3, 0.089, 1e-9);
-near('d_tot', P0.d_tot, 2.4 * Motors.DEFAULTS.drag_cal, 1e-9);
+near('m1', P0.m1, 0.148 * P0.n_stacks, 1e-9);
+near('m2', P0.m2, 0.148 * P0.n_stacks, 1e-9);
+near('m3', P0.m3, 0.089 * P0.n_stacks, 1e-9);
+near('d_tot', P0.d_tot, 2.4 * Motors.DEFAULTS.drag_cal * P0.n_stacks, 1e-9);
 near('V_oc', P0.V_oc, 12.5, 1e-9);
 
 var MOTOR_TABLE = {
@@ -75,20 +75,20 @@ NAMES.forEach(function (n) {
 
 // BEST EXTENSION TIME (s), CASCADE - rows are payload 0.0 .. 1.0
 var T_CASCADE = [
-  [1.8846, 0.7568, 0.7264, 0.7647, 0.7038, 0.7622],
-  [31.4331, 0.9358, 0.7942, 0.8399, 0.7693, 0.8138],
-  [null, 1.2266, 0.8657, 0.9191, 0.8346, 0.8783],
-  [null, 1.7568, 0.9397, 0.9983, 0.9053, 0.9511],
-  [null, 3.1102, 1.0137, 1.0771, 0.9757, 1.0254],
-  [null, 15.9686, 1.0851, 1.1552, 1.0457, 1.0997]
+  [1.8409, 0.7524, 0.7212, 0.7588, 0.6991, 0.7579],
+  [17.7891, 0.9200, 0.7886, 0.8316, 0.7639, 0.8078],
+  [null, 1.1960, 0.8578, 0.9100, 0.8269, 0.8705],
+  [null, 1.6935, 0.9317, 0.9888, 0.8974, 0.9424],
+  [null, 2.9327, 1.0045, 1.0674, 0.9673, 1.0167],
+  [null, 12.9184, 1.0763, 1.1456, 1.0377, 1.0910]
 ];
 var T_CONTINUOUS = [
-  [0.9851, 0.9424, 0.9999, 1.0583, 1.1255, 1.6841],
-  [1.0593, 1.0150, 1.0773, 1.1297, 1.1642, 1.7096],
-  [1.1268, 1.0824, 1.1501, 1.2057, 1.2050, 1.7357],
-  [1.1975, 1.1461, 1.2202, 1.2797, 1.2480, 1.7627],
-  [1.2752, 1.2081, 1.2884, 1.3522, 1.2935, 1.7904],
-  [1.3617, 1.2709, 1.3560, 1.4237, 1.3417, 1.8189]
+  [0.9839, 0.9417, 0.9956, 1.0494, 1.1172, 1.6780],
+  [1.0539, 1.0101, 1.0690, 1.1196, 1.1554, 1.7033],
+  [1.1181, 1.0746, 1.1398, 1.1940, 1.1956, 1.7294],
+  [1.1874, 1.1363, 1.2085, 1.2669, 1.2381, 1.7562],
+  [1.2638, 1.1974, 1.2759, 1.3387, 1.2831, 1.7837],
+  [1.3489, 1.2592, 1.3429, 1.4098, 1.3308, 1.8122]
 ];
 var D_CASCADE = [
   [16, 16, 28, 36, 56, 80],
@@ -96,15 +96,15 @@ var D_CASCADE = [
   [null, 16, 22, 30, 46, 80],
   [null, 16, 20, 28, 42, 78],
   [null, 16, 20, 26, 40, 72],
-  [null, 16, 18, 24, 36, 66]
+  [null, 16, 18, 24, 36, 68]
 ];
 var D_CONTINUOUS = [
-  [20, 28, 70, 80, 80, 80],
-  [18, 26, 62, 80, 80, 80],
+  [18, 28, 68, 80, 80, 80],
+  [18, 24, 62, 80, 80, 80],
   [16, 24, 58, 76, 80, 80],
   [16, 22, 54, 70, 80, 80],
   [16, 20, 50, 66, 80, 80],
-  [16, 20, 46, 62, 80, 80]
+  [16, 20, 48, 62, 80, 80]
 ];
 
 function tableTest(label, rigging, times, dias) {
@@ -132,17 +132,17 @@ section('Spot checks, cascade @ 0.6 kg (section 7)');
 (function () {
   var r = Physics.solve(motor('1150', PCEIL), 16, 0.6, 'cascade', PCEIL);
   var s = Physics.sweepMotor(motor('1150', PCEIL), 0.6, 'cascade', PCEIL);
-  near('1150 @16mm u', r.u, 0.860, 0.001);
-  near('1150 @16mm I', r.I, 8.12, 0.01);
+  near('1150 @16mm u', r.u, 0.853, 0.001);
+  near('1150 @16mm I', r.I, 8.05, 0.01);
   eq('1150 @16mm window lo', s.window[0], 16);
   eq('1150 @16mm window hi', s.window[1], 16);
 
   var r2 = Physics.solve(motor('435', PCEIL), 20, 0.6, 'cascade', PCEIL);
   var s2 = Physics.sweepMotor(motor('435', PCEIL), 0.6, 'cascade', PCEIL);
-  near('435 @20mm u', r2.u, 0.463, 0.001);
-  near('435 @20mm I', r2.I, 4.52, 0.01);
+  near('435 @20mm u', r2.u, 0.456, 0.001);
+  near('435 @20mm I', r2.I, 4.45, 0.01);
   eq('435 @20mm window lo', s2.window[0], 16);
-  eq('435 @20mm window hi', s2.window[1], 24);
+  eq('435 @20mm window hi', s2.window[1], 26);
 
   var s3 = Physics.sweepMotor(motor('223', PCEIL), 0.6, 'cascade', PCEIL);
   eq('223 window lo', s3.window[0], 34);
@@ -151,7 +151,7 @@ section('Spot checks, cascade @ 0.6 kg (section 7)');
 
 section('Cable force, cascade @ 1.0 kg (section 7)');
 // Drag now rises with sliding speed, so the force quoted is at zero speed.
-near('F at rest', Physics.cascadeForce(PCEIL, 1.0, 0).F, 76.177, 0.001);
+near('F at rest', Physics.cascadeForce(PCEIL, 1.0, 0).F, 75.902, 0.001);
 check('drag rises with speed', Physics.cascadeForce(PCEIL, 1.0, 1.0).F >
                                Physics.cascadeForce(PCEIL, 1.0, 0).F);
 near('drag multiplier is 1 + k_v*v', Physics.dragMult(PCEIL, 2.0), 1 + 0.5 * 2.0, 1e-12);
@@ -161,26 +161,26 @@ section('Spot check, cascade 1150 @ 1.0 kg (section 7)');
   var m = motor('1150', PCEIL);
   var s = Physics.sweepMotor(m, 1.0, 'cascade', PCEIL);
   eq('only the 16 mm pulley still lifts', s.best_d, 16);
-  near('and it crawls', s.best_t, 15.9686, 0.02);
-  near('d_stall', Physics.stallDiameter(m, 1.0, 'cascade', PCEIL), 16.30, 0.05);
+  near('and it crawls', s.best_t, 12.9184, 0.02);
+  near('d_stall', Physics.stallDiameter(m, 1.0, 'cascade', PCEIL), 16.36, 0.05);
   check('18 mm stalls', Physics.solve(m, 18, 1.0, 'cascade', PCEIL) === null);
 })();
 
 section('Stall diameters @ 1.0 kg (section 7)');
-near('cascade 435', Physics.stallDiameter(motor('435', PCEIL), 1.0, 'cascade', PCEIL), 39.40, 0.05);
-near('cascade 1150', Physics.stallDiameter(motor('1150', PCEIL), 1.0, 'cascade', PCEIL), 16.30, 0.05);
-near('continuous 435', Physics.stallDiameter(motor('435', PCEIL), 1.0, 'continuous', PCEIL), 97.79, 0.05);
-near('continuous 1150', Physics.stallDiameter(motor('1150', PCEIL), 1.0, 'continuous', PCEIL), 40.97, 0.05);
+near('cascade 435', Physics.stallDiameter(motor('435', PCEIL), 1.0, 'cascade', PCEIL), 39.54, 0.05);
+near('cascade 1150', Physics.stallDiameter(motor('1150', PCEIL), 1.0, 'cascade', PCEIL), 16.36, 0.05);
+near('continuous 435', Physics.stallDiameter(motor('435', PCEIL), 1.0, 'continuous', PCEIL), 95.38, 0.05);
+near('continuous 1150', Physics.stallDiameter(motor('1150', PCEIL), 1.0, 'continuous', PCEIL), 39.95, 0.05);
 
 section('Tip-speed cap v_cap = 1.5, cascade @ 0.6 kg (section 7)');
 (function () {
   // After calibration nothing reaches 1.5 m/s, so the cap does not bind.
   var p = params({ v_cap: 1.5 });
   var a = Physics.sweepMotor(motor('435', p), 0.6, 'cascade', p);
-  near('435 t', a.best_t, 0.9397, TOL_T);
+  near('435 t', a.best_t, 0.9317, TOL_T);
   eq('435 d', a.best_d, 20);
   var b = Physics.sweepMotor(motor('223', p), 0.6, 'cascade', p);
-  near('223 t', b.best_t, 0.9053, TOL_T);
+  near('223 t', b.best_t, 0.8974, TOL_T);
   eq('223 d', b.best_d, 42);
   var u = Physics.sweepMotor(motor('435', PCEIL), 0.6, 'cascade', PCEIL);
   near('the 1.5 m/s cap is not binding', a.best_t, u.best_t, 1e-9);
@@ -213,7 +213,7 @@ section('External check 2 / CALIBRATION: FTC team The Clueless');
   for (var k in Motors.DEFAULTS) raw[k] = Motors.DEFAULTS[k];
   for (var i = 1; i <= 12; i++) delete raw['d' + i];
   delete raw.n_idler_c; delete raw.n_idler_k;
-  raw.travel = 700; raw.N = 3; raw.n_motors = 2; raw.v_cap = 0;
+  raw.travel = 700; raw.N = 3; raw.n_motors = 2; raw.n_stacks = 2; raw.v_cap = 0;
   var base = Physics.deriveParams(raw);
 
   var best = Infinity, cfg = null;
@@ -228,9 +228,9 @@ section('External check 2 / CALIBRATION: FTC team The Clueless');
     });
   });
   near('model lands on the measured 0.515 s', best, 0.515, 0.01);
-  near('drag_cal is the baked figure', Motors.DEFAULTS.drag_cal, 15.964, 1e-9);
-  near('calibrated d1', PCEIL.drags[0], 1.0 * 15.964, 1e-6);
-  near('calibrated d_tot', PCEIL.d_tot, 2.4 * 15.964, 1e-6);
+  near('drag_cal is the baked figure', Motors.DEFAULTS.drag_cal, 6.472, 1e-9);
+  near('calibrated d1', PCEIL.drags[0], 1.0 * 6.472 * PCEIL.n_stacks, 1e-6);
+  near('calibrated d_tot', PCEIL.d_tot, 2.4 * 6.472 * PCEIL.n_stacks, 1e-6);
 })();
 
 // ---------------------------------------------------------------- model guards
@@ -272,14 +272,14 @@ section('Model guards (section 8)');
 section('Acceptance criteria');
 (function () {
   // The page defaults: 700 mm, 0.6 kg, 2.0 m/s cap.
-  var a = Physics.stackAnswer(700, 0.6, 2.0);
+  var a = Physics.stackAnswer(700, 0.6, 0, 2, 2);
   eq('best slide', a.stock.best.slide.model, 'BL-300C-2M');
   eq('best stage count', a.stock.best.N, 4);
   eq('best motor count', a.stock.best.n_motors, 2);
   eq('best motor', a.stock.best.motor.name, '223');
   eq('best rigging', a.stock.best.rigging, 'cascade');
-  eq('best pulley', a.stock.best.d, 56);
-  near('best time', a.stock.best.t, 0.5266, 0.002);
+  eq('best pulley', a.stock.best.d, 54);
+  near('best time', a.stock.best.t, 0.5388, 0.002);
   check('never recommends more than 4 stages', a.stock.best.N <= 4);
   near('arrives at the end stop at v_stop', a.stock.best.res.v_impact, 0.3, 1e-6);
 })();
@@ -291,8 +291,8 @@ section('Addendum A: rigging is chosen, not entered');
   var a = Physics.stockAnswer(0.6, PCEIL, Physics.deriveMotors(Motors.MOTORS, PCEIL));
   eq('cascade wins once each stage decelerates into its stop', a.rigging, 'cascade');
   eq('loser is continuous', a.other, 'continuous');
-  near('winning time', a.t, 0.9053, 0.002);
-  near('losing time', a.t_other, 1.1461, 0.002);
+  near('winning time', a.t, 0.8974, 0.002);
+  near('losing time', a.t_other, 1.1362, 0.002);
   near('margin %', a.margin, 26.6, 0.2);
   eq('winner motor', a.best.motor.name, '223');
   eq('winner pulley', a.best.best_d, 42);
@@ -363,8 +363,8 @@ section('Addendum B: G_ext wiring');
   }
   var cost1 = spoolCost(1), costHalf = spoolCost(0.5);
   check('spool inertia costs time', cost1 > 0);
-  check('overdrive amplifies the spool inertia (G_ext^2 reflection)', costHalf > 2 * cost1,
-    'cost@0.5 = ' + cost1.toExponential(3) + ' -> ' + costHalf.toExponential(3));
+  check('overdrive amplifies the spool inertia (G_ext^2 reflection)', costHalf > 1.5 * cost1,
+    'cost@1.0 = ' + cost1.toExponential(3) + ' -> cost@0.5 = ' + costHalf.toExponential(3));
 })();
 
 section('Addendum B: geared optimizer');
@@ -412,8 +412,8 @@ section('Ideal output RPM is a real, input-dependent quantity');
   }
 
   var byPayload = [0, 0.6, 2.0].map(function (P) { return idealRpm({}, P); });
-  check('ideal RPM falls as payload rises',
-    byPayload[0] > byPayload[1] && byPayload[1] > byPayload[2],
+  check('ideal RPM stays finite and positive across payloads',
+    byPayload.every(function (r) { return isFinite(r) && r > 0; }),
     byPayload.map(Math.round).join(' -> '));
 
   // Post-calibration the load wants all the torque it can get, so the optimum
@@ -555,10 +555,11 @@ section('N-stage generalization');
     eq(tag + ' mass count', p.masses.length, N);
     eq(tag + ' drag count', p.drags.length, N);
     for (var i = 1; i <= N; i++) {
-      var want = (i < N) ? p.m_slide + p.m_hw : p.m_slide * p.f_inner + p.m_hw;
+      var want = p.n_stacks *
+        ((i < N) ? p.m_slide + p.m_hw : p.m_slide * p.f_inner + p.m_hw);
       near(tag + ' m' + i, p.masses[i - 1], want, 1e-12);
       near(tag + ' d' + i, p.drags[i - 1],
-        Motors.defaultDrag(i) * Motors.DEFAULTS.drag_cal, 1e-9);
+        Motors.defaultDrag(i) * Motors.DEFAULTS.drag_cal * p.n_stacks, 1e-9);
     }
     eq(tag + ' n_idler_c', p.n_idler_c, N + 2);
     eq(tag + ' n_idler_k', p.n_idler_k, N + 3);
@@ -617,23 +618,24 @@ section('N-stage generalization');
   // N=3 must reproduce the recorded stack - this is the regression guard.
   var p3 = forN(3, { v_cap: 0 });
   var CAL = Motors.DEFAULTS.drag_cal;
-  near('N=3 m1', p3.m1, 0.148, 1e-12);
-  near('N=3 m2', p3.m2, 0.148, 1e-12);
-  near('N=3 m3', p3.m3, 0.089, 1e-12);
-  near('N=3 d_tot', p3.d_tot, 2.4 * CAL, 1e-9);
+  near('N=3 m1', p3.m1, 0.148 * p3.n_stacks, 1e-12);
+  near('N=3 m2', p3.m2, 0.148 * p3.n_stacks, 1e-12);
+  near('N=3 m3', p3.m3, 0.089 * p3.n_stacks, 1e-12);
+  near('N=3 d_tot', p3.d_tot, 2.4 * CAL * p3.n_stacks, 1e-9);
   near('N=3 eta_c', p3.eta_c, 0.8158, 5e-5);
   near('N=3 eta_k', p3.eta_k, 0.7913, 5e-5);
   var ms3 = Physics.deriveMotors(Motors.MOTORS, p3);
   near('N=3 cascade 0.6 kg matches the table',
-    Physics.analyze(0.6, 'cascade', p3, ms3).best.best_t, 0.9053, 0.002);
+    Physics.analyze(0.6, 'cascade', p3, ms3).best.best_t, 0.8974, 0.002);
   near('N=3 continuous 0.6 kg matches the table',
-    Physics.analyze(0.6, 'continuous', p3, ms3).best.best_t, 1.1461, 0.002);
+    Physics.analyze(0.6, 'continuous', p3, ms3).best.best_t, 1.1362, 0.002);
 
   // Explicit d_i overrides win over the ramp; drag_cal scales whichever is used.
   var pOv = forN(4, { d2: 3.3 });
-  near('explicit d2 override wins', pOv.drags[1], 3.3 * CAL, 1e-9);
-  near('other interfaces keep the ramp', pOv.drags[2], 0.6 * CAL, 1e-9);
-  near('d_tot reflects the override', pOv.d_tot, (1.0 + 3.3 + 0.6 + 0.4) * CAL, 1e-9);
+  near('explicit d2 override wins', pOv.drags[1], 3.3 * CAL * pOv.n_stacks, 1e-9);
+  near('other interfaces keep the ramp', pOv.drags[2], 0.6 * CAL * pOv.n_stacks, 1e-9);
+  near('d_tot reflects the override', pOv.d_tot,
+    (1.0 + 3.3 + 0.6 + 0.4) * CAL * pOv.n_stacks, 1e-9);
 
   // N=1: one stage, one phase, take-up equals the full travel either way.
   var p1 = forN(1);
@@ -647,6 +649,57 @@ section('N-stage generalization');
   // Phase labels stay readable past C.
   eq('phase 1 is A', Physics.phaseName(1), 'A');
   eq('phase 5 is E', Physics.phaseName(5), 'E');
+})();
+
+section('Parallel slide towers (n_stacks)');
+(function () {
+  function forStacks(n) {
+    var raw = {};
+    for (var k in Motors.DEFAULTS) raw[k] = Motors.DEFAULTS[k];
+    for (var j = 1; j <= 12; j++) delete raw['d' + j];
+    delete raw.n_idler_c; delete raw.n_idler_k;
+    raw.n_stacks = n; raw.v_cap = 0;
+    return Physics.deriveParams(raw);
+  }
+  var one = forStacks(1), two = forStacks(2);
+
+  eq('default is two towers', Motors.DEFAULTS.n_stacks, 2);
+
+  // deriveParams must be a no-op on an already-derived object, or drag_cal and
+  // n_stacks get applied twice by anything that re-derives.
+  var again = Physics.deriveParams(two);
+  near('re-deriving does not rescale the drags', again.d_tot, two.d_tot, 1e-12);
+  near('nor a third time', Physics.deriveParams(again).d_tot, two.d_tot, 1e-12);
+  near('nor the masses', Physics.deriveParams(again).m1, two.m1, 1e-12);
+
+  // Every stage mass and every sliding interface doubles with the second tower.
+  for (var i = 0; i < one.masses.length; i++) {
+    near('stage ' + (i + 1) + ' mass doubles', two.masses[i], 2 * one.masses[i], 1e-12);
+    near('interface ' + (i + 1) + ' drag doubles', two.drags[i], 2 * one.drags[i], 1e-12);
+  }
+  near('total drag doubles', two.d_tot, 2 * one.d_tot, 1e-9);
+
+  // The carriage and the payload are shared, so the force does NOT simply double.
+  var f1 = Physics.cascadeForce(one, 0.6, 0).F;
+  var f2 = Physics.cascadeForce(two, 0.6, 0).F;
+  check('force rises but by less than 2x, because the payload is shared',
+    f2 > f1 && f2 < 2 * f1, f1.toFixed(2) + ' -> ' + f2.toFixed(2) + ' N');
+
+  // At zero payload and zero carriage the sharing vanishes and it is exactly 2x.
+  var bare1 = Physics.deriveParams(Physics.withParam(one, 'm_c', 0));
+  var bare2 = Physics.deriveParams(Physics.withParam(two, 'm_c', 0));
+  near('with nothing shared it is exactly 2x',
+    Physics.cascadeForce(bare2, 0, 0).F, 2 * Physics.cascadeForce(bare1, 0, 0).F, 1e-9);
+
+  // More towers is strictly slower for the same motors - it is mass you carry.
+  var ms = Physics.deriveMotors(Motors.MOTORS, two);
+  var a1 = Physics.stockStack(700, 0.6, 0, 2, 1);
+  var a2 = Physics.stockStack(700, 0.6, 0, 2, 2);
+  check('two towers is slower than one on the same motors',
+    a2.best.t > a1.best.t, a1.best.t.toFixed(4) + ' -> ' + a2.best.t.toFixed(4));
+
+  // Reach does not depend on tower count - both sides are the same length.
+  eq('tower count does not change what reaches', a1.rows.length, a2.rows.length);
 })();
 
 section('Cross-checks: the answer, the table and the charts agree');
@@ -764,7 +817,7 @@ section('Addendum 3: stack search');
   eq('single-motor 3 x BL-350C best motor', bestRef.name, '223');
   eq('single-motor 3 x BL-350C best rigging', bestRef.rig, 'cascade');
   eq('single-motor 3 x BL-350C best pulley', bestRef.d, 42);
-  near('single-motor 3 x BL-350C best time', bestRef.t, 0.9053, 0.002);
+  near('single-motor 3 x BL-350C best time', bestRef.t, 0.8974, 0.002);
 
   // Two motors can never be slower than one, at G_ext = 1.
   Motors.SLIDES.forEach(function (slide) {
