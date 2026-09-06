@@ -589,8 +589,9 @@
   }
 
   // Every (slide, N) that reaches the extension, best build for each, plus the
-  // outright winner. grid is [1] for the stock search.
-  function searchStacks(extension, payload, v_cap, grid) {
+  // outright winner. grid is [1] for the stock search. `nMotors`, if given, pins
+  // the search to that many motors instead of searching 1 and 2.
+  function searchStacks(extension, payload, v_cap, grid, nMotors) {
     var rows = [], best = null, reachable = false;
 
     Motors.SLIDES.forEach(function (slide) {
@@ -599,7 +600,8 @@
         reachable = true;
         var rowBest = null;
 
-        Motors.MOTOR_COUNTS.forEach(function (nm) {
+        var counts = nMotors ? [nMotors] : Motors.MOTOR_COUNTS;
+        counts.forEach(function (nm) {
           var base = stackParams(slide, N, nm, extension, payload, v_cap);
           var ms = deriveMotors(Motors.MOTORS, base);
           var ds = diameters(base);
@@ -633,13 +635,13 @@
     return { rows: rows, best: best, reachable: reachable };
   }
 
-  function stockStack(extension, payload, v_cap) {
-    return searchStacks(extension, payload, v_cap, [1]);
+  function stockStack(extension, payload, v_cap, nMotors) {
+    return searchStacks(extension, payload, v_cap, [1], nMotors);
   }
 
-  function gearedStack(extension, payload, v_cap, gridOverride) {
+  function gearedStack(extension, payload, v_cap, nMotors, gridOverride) {
     var grid = gridOverride || gearGrid(deriveParams(Motors.DEFAULTS));
-    var out = searchStacks(extension, payload, v_cap, grid);
+    var out = searchStacks(extension, payload, v_cap, grid, nMotors);
     if (out.best) {
       out.rpm_equiv = out.best.motor.rpm_free / out.best.G_ext;
       out.teeth = out.best.G_ext === 1 ? null : nearestToothPair(out.best.G_ext);
@@ -648,13 +650,13 @@
   }
 
   // Everything the page needs for one set of inputs.
-  function stackAnswer(extension, payload, v_cap) {
-    var stock = stockStack(extension, payload, v_cap);
+  function stackAnswer(extension, payload, v_cap, nMotors) {
+    var stock = stockStack(extension, payload, v_cap, nMotors);
     if (!stock.reachable || !stock.best) {
       return { reachable: stock.reachable, stock: stock, geared: null,
                gain: null, gearingHelps: false };
     }
-    var geared = gearedStack(extension, payload, v_cap);
+    var geared = gearedStack(extension, payload, v_cap, nMotors);
     var gain = geared.best ? 100 * (stock.best.t - geared.best.t) / stock.best.t : null;
     return {
       reachable: true, stock: stock, geared: geared, gain: gain,

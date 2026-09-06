@@ -23,7 +23,10 @@
     travel: 700,          // mm
     rigging: 'cascade',   // cascade | continuous
     payload: 0.6,         // kg
-    v_cap: 2.0,           // m/s tip-speed cap; 0 = uncapped physics ceiling
+    // Tip-speed cap. Baked at 0 (uncapped): the end-stop deceleration ramp now
+    // does the job a cap used to, and nothing in the catalogue reaches even
+    // 1.6 m/s through the calibrated drag, so no cap above that ever binds.
+    v_cap: 0,
 
     // --- geometry and masses ---
     N: 3,                 // stages

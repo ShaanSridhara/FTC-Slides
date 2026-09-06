@@ -1,8 +1,8 @@
 # FTC Vertical Linear Slide Calculator
 
-Tell it how far you need to extend, what you are lifting, and optionally a tip-speed cap. It
-searches every BWTLink slide, stage count, motor count, motor, rigging and pulley diameter, and
-returns the fastest build. Three inputs, no knobs.
+Tell it how far you need to extend, what you are lifting, and how many motors you have. It
+searches every BWTLink slide, stage count, motor, rigging and pulley diameter, and returns the
+fastest build. Three inputs, no knobs.
 
 **Live:** https://shaansridhara.github.io/FTC-Slides/
 
@@ -12,15 +12,19 @@ returns the fastest build. Three inputs, no knobs.
 |---|---|
 | slide | BL-200A-2M (8 in, 121 mm stroke), BL-300C-2M (12 in, 205), BL-350C-2M (14 in, 245.5), BL-400B-2M (16 in, 283) |
 | stages | 2, 3, 4 — only combinations where `N × stroke ≥ extension`. Capped at 4: a fifth stage is more rigging, drag and slop than the fraction of a second it buys. |
-| motors | 1 or 2 |
+| motors | set by you, 1 or 2 |
 | motor | the six goBILDA Yellow Jackets |
 | rigging | cascade and continuous, both always |
 | pulley | 33-point grid, 16–80 mm |
 
-Roughly 12,700 solves for Answer 1, and 113× that for the external-ratio sweep in Answer 2.
-Answer 1, the table and the charts paint immediately; the geared search runs on the next tick and
-fills Answer 2 in when it lands, so typing stays responsive without coarsening the search. Input is
-debounced 200 ms.
+Answer 1 and the table paint immediately; the external-ratio sweep for Answer 2 is 113× the work,
+so it runs on the next tick and fills in when it lands, guarded by a run id so a slow search cannot
+overwrite newer input. Input is debounced 200 ms.
+
+There is no tip-speed cap input. Nothing in the catalogue reaches even 1.6 m/s through the
+calibrated drag, so no realistic cap ever binds, and the end-stop deceleration ramp now does the job
+a cap used to do. It is baked at 0 (uncapped); the physics still supports one and the tests still
+exercise it.
 
 Every constant from the recorded data is baked into `motors.js`. Travel used is the extension
 asked for, not the stack's maximum, and the drag ramp and idler counts regenerate from N.

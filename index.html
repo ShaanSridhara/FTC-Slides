@@ -11,9 +11,9 @@
 <header class="masthead">
   <div class="wrap">
     <h1>FTC Vertical Linear Slide Calculator</h1>
-    <p class="sub">Tell it how far you need to extend and what you are lifting. It searches every
-       BWTLink slide, stage count, motor count, motor, rigging and pulley diameter, and returns
-       the fastest build.</p>
+    <p class="sub">Tell it how far you need to extend, what you are lifting, and how many motors
+       you have. It searches every BWTLink slide, stage count, motor, rigging and pulley diameter,
+       and returns the fastest build.</p>
   </div>
 </header>
 
@@ -29,9 +29,11 @@
       <div class="ctl"><input id="payload" type="number" step="0.1" min="0"><span class="unit">kg</span></div>
     </div>
     <div class="field">
-      <label for="v_cap">Tip-speed cap</label>
-      <div class="ctl"><input id="v_cap" type="number" step="0.1" min="0"><span class="unit">m/s</span></div>
-      <p class="hint">0 = physics ceiling &mdash; not buildable</p>
+      <label for="n_motors">Motors</label>
+      <div class="ctl"><select id="n_motors">
+        <option value="1">1 motor</option>
+        <option value="2">2 motors</option>
+      </select></div>
     </div>
   </section>
 
@@ -56,25 +58,9 @@
     <p class="hint" id="table-note"></p>
   </section>
 
-  <section class="charts" id="charts">
-    <div class="card chart-card">
-      <h2 class="card-title">Best time vs payload <span class="tag" id="chart1-tag"></span></h2>
-      <div class="chart-box"><canvas id="chart-load"></canvas></div>
-    </div>
-    <div class="card chart-card">
-      <h2 class="card-title">Time vs pulley diameter <span class="tag" id="chart2-tag"></span></h2>
-      <div class="chart-box"><canvas id="chart-dia"></canvas></div>
-      <p class="hint">Values above 1.6&times; the best are hidden so the axis stays readable.</p>
-    </div>
-  </section>
-
-  <p id="chartwarn" class="warn" hidden>
-    Charts need Chart.js from the CDN, which did not load. The numbers above are unaffected.
-  </p>
 
 </main>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="motors.js"></script>
 <script src="physics.js"></script>
 <script src="app.js"></script>

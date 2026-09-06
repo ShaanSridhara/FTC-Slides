@@ -2,16 +2,13 @@
 (function () {
   'use strict';
 
-  var SWEEP = Motors.PAYLOAD_SWEEP;
-  var CLIP = 1.6;         // the diameter chart hides anything above 1.6x its best
   var DEBOUNCE = 200;     // ms
 
-  var INPUT_DEFAULTS = { extension: 700, payload: 0.6, v_cap: 2.0 };
-
-  var COLORS = ['#1f5fd0', '#e2574c', '#0d9b6c', '#c9821a', '#7b52c9', '#4a5666'];
+  var INPUT_DEFAULTS = { extension: 700, payload: 0.6 };
+  var N_MOTORS_DEFAULT = 2;
+  var V_CAP = 0;          // uncapped; the end-stop ramp is what limits arrival speed
 
   var $ = function (id) { return document.getElementById(id); };
-  var charts = {};
   var debounceTimer = null;
   var gearedTimer = null;
   var runId = 0;          // guards a slow geared search against newer input
@@ -35,12 +32,13 @@
     });
     v.extension = Math.max(1, v.extension);
     v.payload = Math.max(0, v.payload);
-    v.v_cap = Math.max(0, v.v_cap);
+    v.n_motors = parseInt($('n_motors').value, 10) === 1 ? 1 : 2;
     return v;
   }
 
   function writeInputs(v) {
     Object.keys(INPUT_DEFAULTS).forEach(function (k) { $(k).value = v[k]; });
+    $('n_motors').value = String(N_MOTORS_DEFAULT);
   }
 
   // --------------------------------------------------------------- answer
@@ -79,14 +77,10 @@
         f(c.res.v_impact, 2) + ' m/s</b> instead of ' + f(c.params.v_stop, 2) +
         ' m/s. Expect a bang.');
     }
-    if (c.leftover < 0.02 * c.N * c.slide.stroke) {
-      out.push('Only <b>' + f(c.leftover, 0) + ' mm</b> of stroke spare &mdash; almost no margin ' +
-        'for rigging losses or a hard stop.');
-    }
     return out.map(function (m) { return '<div class="flag">' + m + '</div>'; }).join('');
   }
 
-  function stockCard(best, fastest, inp) {
+  function stockCard(best, fastest) {
     return '<div class="ans">' +
       '<div class="ans-head"><h3>Answer 1 &mdash; Stock' +
         (fastest ? ' <span class="fastest">FASTEST</span>' : '') + '</h3>' +
@@ -97,23 +91,7 @@
         '<div class="headline">Pulley <strong class="big">' + f(best.d, 0) + '</strong> mm</div>' +
         '<div class="headline">In <strong class="big">' + f(best.t, 3) + '</strong> s</div>' +
       '</div>' +
-      '<div class="stats">' + buildStats(best) + '</div>' +
-      ceilingLines(best, inp) + warnings(best) + '</div>';
-  }
-
-  // What the same build would do with no cap and no end-stop ramp - the headroom
-  // the two are costing, so the user can see what is physics and what is policy.
-  function ceilingLines(best, inp) {
-    var free = Physics.withParam(Physics.withParam(best.params, 'v_cap', 0), 'd_stop', 0);
-    var bt = Infinity;
-    Physics.diameters(free).forEach(function (d) {
-      var r = Physics.solve(best.motor, d, inp.payload, best.rigging, free);
-      if (r && r.t < bt) bt = r.t;
-    });
-    if (!isFinite(bt)) return '';
-    return '<p class="ceiling">Physics ceiling (no cap, no decel): <b>' + f(bt, 3) + ' s</b>' +
-      '<br><span class="dim">The cap and the ' + f(best.params.d_stop, 0) +
-      ' mm stopping ramp cost ' + f(best.t - bt, 3) + ' s of that.</span></p>';
+      '<div class="stats">' + buildStats(best) + '</div>' + warnings(best) + '</div>';
   }
 
   function gearedCard(res, fastest) {
@@ -130,17 +108,6 @@
       : 'Gear the <b>' + esc(b.motor.name) + '</b> at <b>' + f(b.G_ext, 2) + ':1</b>' +
         (g.teeth ? ' (&asymp; ' + g.teeth.driven + 'T:' + g.teeth.driver + 'T)' : '') + '.';
 
-    var verdict;
-    if (helps) {
-      verdict = '<div class="flag good">Worth building: <b>' + f(res.gain, 1) +
-        '% faster</b> than Answer 1.</div>';
-    } else if (faster) {
-      verdict = '<div class="flag">Fastest, but only by <b>' + f(res.gain, 1) +
-        '%</b>. Answer 1 is simpler to build for almost the same time.</div>';
-    } else {
-      verdict = '<div class="flag">Gearing doesn&rsquo;t help &mdash; build Answer 1.</div>';
-    }
-
     return '<div class="ans' + (faster ? '' : ' muted') + '">' +
       '<div class="ans-head"><h3>Answer 2 &mdash; Geared' +
         (fastest ? ' <span class="fastest">FASTEST</span>' : '') + '</h3>' +
@@ -154,7 +121,7 @@
       '<div class="stats">' + buildStats(b) +
         stat('External ratio', b.G_ext === 1 ? 'direct' : f(b.G_ext, 2) + ':1', '') +
       '</div>' +
-      '<p class="teeth">' + reach + '</p>' + verdict + warnings(b) + '</div>';
+      '<p class="teeth">' + reach + '</p>' + warnings(b) + '</div>';
   }
 
   function renderUnreachable(inp) {
@@ -169,7 +136,6 @@
     $('results').querySelector('tbody').innerHTML = '';
     $('table-note').textContent = '';
     $('table-card').hidden = true;
-    $('charts').hidden = true;
   }
 
   // ---------------------------------------------------------------- table
@@ -196,96 +162,6 @@
       'the stack has left over.';
   }
 
-  // --------------------------------------------------------------- charts
-
-  function axes(xTitle, yTitle) {
-    var grid = getComputedStyle(document.body).getPropertyValue('--line').trim();
-    var ink = getComputedStyle(document.body).getPropertyValue('--ink-2').trim();
-    return {
-      x: { type: 'linear', title: { display: true, text: xTitle, color: ink },
-           grid: { color: grid }, ticks: { color: ink } },
-      y: { title: { display: true, text: yTitle, color: ink }, beginAtZero: false,
-           grid: { color: grid }, ticks: { color: ink } }
-    };
-  }
-
-  function draw(id, datasets, xTitle, yTitle) {
-    if (typeof Chart === 'undefined') return;
-    var ink = getComputedStyle(document.body).getPropertyValue('--ink-2').trim();
-    if (charts[id]) {
-      charts[id].data.datasets = datasets;
-      charts[id].options.scales = axes(xTitle, yTitle);
-      charts[id].update('none');
-      return;
-    }
-    charts[id] = new Chart($(id), {
-      type: 'line',
-      data: { datasets: datasets },
-      options: {
-        responsive: true, maintainAspectRatio: false, animation: false, parsing: false,
-        interaction: { mode: 'nearest', axis: 'x', intersect: false },
-        elements: { point: { radius: 0 }, line: { borderWidth: 2, tension: 0.15 } },
-        plugins: {
-          legend: { labels: { color: ink, boxWidth: 14, boxHeight: 2, usePointStyle: false } },
-          tooltip: { callbacks: { label: function (c) {
-            return c.dataset.label + ': ' + c.parsed.y.toFixed(4) + ' s';
-          } } }
-        },
-        scales: axes(xTitle, yTitle)
-      }
-    });
-  }
-
-  // Both charts hold Answer 1's slide, stage count, motor count and rigging fixed
-  // and vary only the motor, so they answer "what if I used a different motor in
-  // this exact build".
-  function renderCharts(best, inp) {
-    var p = best.params;
-    var motors = Physics.deriveMotors(Motors.MOTORS, p);
-    var ds = Physics.diameters(p);
-    var label = best.N + ' × ' + best.slide.model + ' · ' +
-                motorWord(best.n_motors) + ' · ' + best.rigging;
-    $('chart1-tag').textContent = label;
-    $('chart2-tag').textContent = label + ' · ' + f(inp.payload, 1) + ' kg';
-
-    var loadSets = motors.map(function (m, i) {
-      var pts = [];
-      SWEEP.forEach(function (P) {
-        var bt = Infinity;
-        ds.forEach(function (d) {
-          var r = Physics.solve(m, d, P, best.rigging, p);
-          if (r && r.t < bt) bt = r.t;
-        });
-        if (isFinite(bt)) pts.push({ x: P, y: bt });
-      });
-      return { label: m.name, data: pts, borderColor: COLORS[i], backgroundColor: COLORS[i] };
-    });
-    draw('chart-load', loadSets, 'Payload (kg)', 'Best extension time (s)');
-
-    var series = motors.map(function (m, i) {
-      return {
-        name: m.name, color: COLORS[i],
-        times: ds.map(function (d) {
-          var r = Physics.solve(m, d, inp.payload, best.rigging, p);
-          return r ? r.t : null;
-        })
-      };
-    });
-    var min = Infinity;
-    series.forEach(function (s) {
-      s.times.forEach(function (t) { if (t !== null && t < min) min = t; });
-    });
-    var ceiling = isFinite(min) ? CLIP * min : Infinity;
-    var diaSets = series.map(function (s) {
-      var pts = [];
-      for (var j = 0; j < ds.length; j++) {
-        if (s.times[j] !== null && s.times[j] <= ceiling) pts.push({ x: ds[j], y: s.times[j] });
-      }
-      return { label: s.name, data: pts, borderColor: s.color, backgroundColor: s.color };
-    });
-    draw('chart-dia', diaSets, 'Pulley diameter (mm)', 'Extension time (s)');
-  }
-
   // ---------------------------------------------------------------- render
 
   function render() {
@@ -293,28 +169,26 @@
     var me = ++runId;
     if (gearedTimer) { clearTimeout(gearedTimer); gearedTimer = null; }
 
-    var stock = Physics.stockStack(inp.extension, inp.payload, inp.v_cap);
+    var stock = Physics.stockStack(inp.extension, inp.payload, V_CAP, inp.n_motors);
     if (!stock.reachable || !stock.best) { renderUnreachable(inp); return; }
 
     $('table-card').hidden = false;
-    $('charts').hidden = false;
-    $('answer-tag').textContent = f(inp.extension, 0) + ' mm · ' + f(inp.payload, 1) + ' kg' +
-      (inp.v_cap > 0 ? ' · cap ' + f(inp.v_cap, 2) + ' m/s' : '');
+    $('answer-tag').textContent = f(inp.extension, 0) + ' mm · ' + f(inp.payload, 1) + ' kg · ' +
+      motorWord(inp.n_motors);
 
-    // Answer 1, the table and the charts are cheap - paint them now. The geared
-    // search sweeps 113 ratios across every stack, so it runs on the next tick
-    // and fills Answer 2 in when it lands.
-    $('answer-body').innerHTML = stockCard(stock.best, true, inp) + gearedCard(null);
+    // Answer 1 and the table are cheap - paint them now. The geared search sweeps
+    // 113 ratios across every stack, so it runs on the next tick and fills
+    // Answer 2 in when it lands.
+    $('answer-body').innerHTML = stockCard(stock.best, true) + gearedCard(null);
     renderTable(stock);
-    renderCharts(stock.best, inp);
 
     gearedTimer = setTimeout(function () {
       if (me !== runId) return;                      // superseded by newer input
-      var full = Physics.stackAnswer(inp.extension, inp.payload, inp.v_cap);
+      var full = Physics.stackAnswer(inp.extension, inp.payload, V_CAP, inp.n_motors);
       if (me !== runId || !full.geared || !full.geared.best) return;
       var gearedWins = full.geared.best.t < stock.best.t - 1e-9;
       $('answer-body').innerHTML =
-        stockCard(stock.best, !gearedWins, inp) + gearedCard(full, gearedWins);
+        stockCard(stock.best, !gearedWins) + gearedCard(full, gearedWins);
     }, 0);
   }
 
@@ -326,9 +200,11 @@
   // ------------------------------------------------------------------ init
 
   writeInputs(INPUT_DEFAULTS);
-  if (typeof Chart === 'undefined') $('chartwarn').hidden = false;
   document.addEventListener('input', function (e) {
     if (e.target.matches('input')) scheduleRender();
+  });
+  document.addEventListener('change', function (e) {
+    if (e.target.matches('select')) scheduleRender();
   });
   render();
 })();
