@@ -167,7 +167,7 @@
     $('answer-tag').textContent = f(inp.extension, 0) + ' mm';
     $('answer-body').innerHTML = '<div class="flag stall">No BWTLink stack reaches ' +
       f(inp.extension, 0) + ' mm. The longest available is ' + f(max, 0) +
-      ' mm (5 &times; BL-400B-2M).</div>';
+      ' mm (' + Math.max.apply(null, Motors.STAGE_COUNTS) + ' &times; BL-400B-2M).</div>';
     $('results').querySelector('tbody').innerHTML = '';
     $('table-note').textContent = '';
     $('table-card').hidden = true;

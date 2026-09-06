@@ -274,12 +274,13 @@ section('Acceptance criteria');
   // The page defaults: 700 mm, 0.6 kg, 2.0 m/s cap.
   var a = Physics.stackAnswer(700, 0.6, 2.0);
   eq('best slide', a.stock.best.slide.model, 'BL-300C-2M');
-  eq('best stage count', a.stock.best.N, 5);
+  eq('best stage count', a.stock.best.N, 4);
   eq('best motor count', a.stock.best.n_motors, 2);
   eq('best motor', a.stock.best.motor.name, '223');
   eq('best rigging', a.stock.best.rigging, 'cascade');
-  eq('best pulley', a.stock.best.d, 44);
-  near('best time', a.stock.best.t, 0.5114, 0.002);
+  eq('best pulley', a.stock.best.d, 56);
+  near('best time', a.stock.best.t, 0.5266, 0.002);
+  check('never recommends more than 4 stages', a.stock.best.N <= 4);
   near('arrives at the end stop at v_stop', a.stock.best.res.v_impact, 0.3, 1e-6);
 })();
 
@@ -705,7 +706,8 @@ section('Addendum 3: stack search');
 
   // Catalogue sanity.
   eq('four slides', Motors.SLIDES.length, 4);
-  eq('stage counts 2..5', Motors.STAGE_COUNTS.join(','), '2,3,4,5');
+  eq('stage counts 2..4', Motors.STAGE_COUNTS.join(','), '2,3,4');
+  check('5 stages is never offered', Motors.STAGE_COUNTS.indexOf(5) === -1);
   eq('motor counts 1,2', Motors.MOTOR_COUNTS.join(','), '1,2');
   near('BL-350C stroke', SL['BL-350C-2M'].stroke, 245.5, 1e-9);
   near('BL-350C mass matches SPEC m_slide', SL['BL-350C-2M'].mass, 0.118, 1e-9);
@@ -713,7 +715,7 @@ section('Addendum 3: stack search');
 
   // Only stacks that actually reach are considered.
   check('3 x BL-350C reaches 700', Physics.reaches(SL['BL-350C-2M'], 3, 700));
-  check('5 x BL-200A does not reach 700', !Physics.reaches(SL['BL-200A-2M'], 5, 700));
+  check('4 x BL-200A does not reach 700', !Physics.reaches(SL['BL-200A-2M'], 4, 700));
   check('2 x BL-350C does not reach 700', !Physics.reaches(SL['BL-350C-2M'], 2, 700));
 
   var stock = Physics.stockStack(700, 0.6, 0);
@@ -799,8 +801,12 @@ section('Addendum 3: stack search');
   // Unreachable extensions are reported, not silently empty.
   var far = Physics.stockStack(2000, 0.6, 0);
   check('2000 mm is out of reach', !far.reachable && !far.best);
-  var edge = Physics.stockStack(5 * SL['BL-400B-2M'].stroke, 0.6, 0);
+  var edge = Physics.stockStack(4 * SL['BL-400B-2M'].stroke, 0.6, 0);
   check('the longest stack is exactly reachable', edge.reachable);
+  var over = Physics.stockStack(4 * SL['BL-400B-2M'].stroke + 1, 0.6, 0);
+  check('one mm past it is not', !over.reachable);
+  check('every row is 4 stages or fewer',
+    Physics.stockStack(700, 0.6, 0).rows.every(function (r) { return r.N <= 4; }));
 
   // Short extensions bring the small slides into play.
   var shortRun = Physics.stockStack(300, 0.6, 0);

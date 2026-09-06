@@ -11,7 +11,7 @@ returns the fastest build. Three inputs, no knobs.
 | axis | values |
 |---|---|
 | slide | BL-200A-2M (8 in, 121 mm stroke), BL-300C-2M (12 in, 205), BL-350C-2M (14 in, 245.5), BL-400B-2M (16 in, 283) |
-| stages | 2, 3, 4, 5 — only combinations where `N × stroke ≥ extension` |
+| stages | 2, 3, 4 — only combinations where `N × stroke ≥ extension`. Capped at 4: a fifth stage is more rigging, drag and slop than the fraction of a second it buys. |
 | motors | 1 or 2 |
 | motor | the six goBILDA Yellow Jackets |
 | rigging | cascade and continuous, both always |

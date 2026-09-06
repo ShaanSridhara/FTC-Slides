@@ -104,7 +104,9 @@
     { model: 'BL-400B-2M', nominal_in: 16, nominal_mm: 406.4, stroke: 283,   mass: 0.130 }
   ];
 
-  var STAGE_COUNTS = [2, 3, 4, 5];
+  // Capped at 4: a 5-stage stack is more rigging, more drag and more slop
+  // than the fraction of a second it buys back.
+  var STAGE_COUNTS = [2, 3, 4];
   var MOTOR_COUNTS = [1, 2];
 
   var PAYLOAD_SWEEP = [0, 0.2, 0.4, 0.6, 0.8, 1.0];
